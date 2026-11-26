@@ -1,0 +1,4 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {readTask} from './read-task.mjs';
+test('read task returns completed content',async()=>{let count=0;const c={read:async()=>({id:'a',status:'running'}),status:async()=>++count===2?{status:'completed',result:{ok:true}}:{status:'running'}};assert.deepEqual(await readTask(c,'https://example.org',{sleep:async()=>{}}),{id:'a',status:'completed',result:{ok:true}})});
+test('pending job does not poll endlessly',async()=>{const c={read:async()=>({id:'a',status:'pending'}),status:async()=>{throw Error('unexpected')}};assert.equal((await readTask(c,'https://example.org')).status,'pending')});
+test('deadline returns current status',async()=>{let n=0;const c={read:async()=>({id:'a',status:'running'}),status:async()=>({status:'running'})};assert.equal((await readTask(c,'https://example.org',{now:()=>n,sleep:async()=>{n+=1000},timeout:2000})).status,'running')});
