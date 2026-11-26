@@ -1,0 +1,8 @@
+{
+  "resourceUrl": "https://YOUR-HOST.example/mcp",
+  "oauthIssuer": "https://YOUR-ISSUER.example/",
+  "introspectionUrl": "https://YOUR-ISSUER.example/introspect",
+  "allowedOrigins": [
+    "https://example.org"
+  ]
+}

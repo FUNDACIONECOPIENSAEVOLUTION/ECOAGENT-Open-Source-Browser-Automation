@@ -10,7 +10,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test test/*.test.mjs cloud/*.test.mjs connector/*.test.mjs
+      - run: node --test test/*.test.mjs cloud/*.test.mjs connector/*.test.mjs gateway/*.test.mjs
       - run: |
           node --check cloud/app.mjs
           node --check cloud/ui.js
@@ -19,6 +19,8 @@ jobs:
           node --check server.mjs
           node --check connector/remote.mjs
           node --check connector/tools.mjs
+          node --check gateway/server.mjs
+          node --check gateway/check-config.mjs
 
       - name: Install connector and audit
         working-directory: connector
