@@ -7,6 +7,7 @@ import {profilePath, safeUrl, sensitiveField} from './privacy.mjs';
 import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright';
 import {validateBatch} from './protocol.mjs';
+import {validateControl} from './manual-control.mjs';
 const root=dirname(fileURLToPath(import.meta.url));
 const home=resolve(process.env.LOCALAPPDATA || (process.platform==='win32'?resolve(homedir(),'AppData','Local'):resolve(homedir(),'.local','share')),'ECOAGENT');
 await mkdir(home,{recursive:true});
@@ -14,6 +15,9 @@ const token=randomBytes(32).toString('hex');
 const port=Number(process.env.ECOAGENT_LOCAL_PORT||8790);if(!Number.isInteger(port)||port<1024||port>65535)throw Error('Puerto inválido');const origin='http://127.0.0.1:'+port;
 let context,page,busy=false,revision=0,activeProfile='institutional',browserChannel='chrome',manual=false;
 const refs=new Map();
+let human=false,liveFrame=null;
+async function authScreen(){for(const f of page.frames()){if(await f.locator('input[type=password],input[autocomplete=one-time-code],input[autocomplete=current-password],input[autocomplete=new-password]').count())return true;}return false;}
+async function safeFocus(){for(const f of page.frames()){const blocked=await f.evaluate(()=>{const e=document.activeElement;if(!e)return false;return /password|file|hidden/i.test(e.type||'')||/password|one-time-code|cc-|webauthn/i.test(e.autocomplete||'')||/password|contrase|secret|token|otp/i.test([e.name,e.id,e.getAttribute('aria-label'),e.placeholder].join(' '))});if(blocked)return false;}return true;}
 const clips=s=>String(s??'').slice(0,180);
 function allowed(raw){const u=new URL(raw);if(!['http:','https:'].includes(u.protocol)||u.username||u.password)throw Error('Solo HTTP(S) sin credenciales en URL');return u.href}
 async function boot(){
@@ -44,9 +48,11 @@ async function inspect(){
  return {url:safeUrl(page.url()),title:await page.title(),elements};
 }
 async function action(a){
- if(a.op==='profile_status')return {profile:activeProfile,channel:browserChannel,manual};
+ if(a.op==='profile_status')return {profile:activeProfile,channel:browserChannel,manual,human};
+ if(human&&!(a.op==='manual'&&a.enabled===true))throw Error('Control humano activo: devuelva el control antes de automatizar');
+ liveFrame=null;
  if(a.op==='profile_switch'){if(context)await context.close();activeProfile=a.profile;browserChannel=a.channel;manual=true;await boot();return {profile:activeProfile,channel:browserChannel,manual};}
- if(a.op==='manual'){manual=a.enabled;refs.clear();if(manual)await page.bringToFront();return {manual};}
+ if(a.op==='manual'){human=false;manual=a.enabled;refs.clear();if(manual)await page.bringToFront();return {manual};}
  if(manual)throw Error('Modo privado activo: termine el inicio de sesión localmente y reactive la automatización');
  if(a.op==='open'){await page.goto(allowed(a.url),{waitUntil:'domcontentloaded',timeout:30000});refs.clear();return {url:safeUrl(page.url())}}
  if(a.op==='inspect')return inspect();
@@ -80,11 +86,36 @@ const server=http.createServer(async(req,res)=>{
    if(manual||!page||busy)return json(res,409,{error:'Visor no disponible: modo privado, navegador cerrado o motor ocupado'});
    busy=true;
    try{
-    for(const frame of page.frames()){
-     if(await frame.locator('input[type=password],input[autocomplete=one-time-code],input[autocomplete=current-password],input[autocomplete=new-password]').count())return json(res,403,{error:'Visor bloqueado en página de autenticación'});
-    }
+    if(await authScreen())return json(res,403,{error:'Visor bloqueado en página de autenticación'});
     const png=await page.screenshot({type:'jpeg',quality:65,timeout:5000});
-    res.writeHead(200,{'Content-Type':'image/jpeg','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(png);
+    const size=page.viewportSize();liveFrame={id:randomBytes(16).toString('hex'),url:page.url(),page,size,at:Date.now()};
+    res.writeHead(200,{'Content-Type':'image/jpeg','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Ecoagent-Frame':liveFrame.id});return res.end(png);
+   }finally{busy=false}
+  }
+  if(req.method==='POST'&&req.url==='/api/v1/control'){
+   if(req.headers.origin!==origin)return json(res,403,{error:'Control solo desde panel local'});
+   if(!auth(req))return json(res,401,{error:'Token requerido'});
+   if(busy)return json(res,409,{error:'Motor ocupado; intente otra vez'});
+   busy=true;
+   try{
+    let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>16000)throw Error('Solicitud demasiado grande')}
+    const a=validateControl(JSON.parse(raw));
+    if(a.op==='status')return json(res,200,{human,manual});
+    if(a.op==='release'){human=false;liveFrame=null;refs.clear();return json(res,200,{human})}
+    if(a.op==='take'){if(manual||!page||await authScreen())return json(res,409,{error:'Abra página no confidencial primero'});human=true;liveFrame=null;refs.clear();return json(res,200,{human})}
+    if(!human||manual||!page)return json(res,409,{error:'Tome control humano primero'});
+    if(await authScreen()){liveFrame=null;return json(res,403,{error:'Autenticación: use ventana real en modo privado'})}
+    const f=liveFrame;
+    if(!f||f.id!==a.frame||f.page!==page||f.url!==page.url()||Date.now()-f.at>8000||!f.size)return json(res,409,{error:'Captura caducada; espere actualización'});
+    liveFrame=null;refs.clear();
+    if(a.op==='click')await page.mouse.click(Math.floor(a.x*f.size.width),Math.floor(a.y*f.size.height));
+    if(a.op==='scroll')await page.mouse.wheel(0,a.y);
+    if(a.op==='text'||a.op==='key'){
+     if(!await safeFocus())return json(res,403,{error:'Campo sensible; utilice ventana real'});
+     if(a.op==='text')await page.keyboard.insertText(a.value);
+     else await page.keyboard.press(a.key);
+    }
+    return json(res,200,{ok:true,human});
    }finally{busy=false}
   }
   if(req.method!=='POST'||req.url!=='/api/v1/batch')return json(res,404,{error:'Ruta desconocida'});
