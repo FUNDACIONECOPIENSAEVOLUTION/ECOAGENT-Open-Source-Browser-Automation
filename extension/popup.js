@@ -47,3 +47,31 @@ async function run(steps){if(busy)return;busy=true;try{if(!Array.isArray(steps)|
  }$('result').textContent=JSON.stringify(results,null,2);$('status').textContent='Lote terminado; verifica cada resultado.';
  }catch(e){$('status').textContent=e.message}finally{busy=false}}
 $('inspect').onclick=()=>run([{op:'inspect'}]);$('run').onclick=()=>{try{run(JSON.parse($('batch').value).steps)}catch(e){$('status').textContent=e.message}};
+
+async function bridge(path,method='GET',body){
+ const r=await fetch('http://127.0.0.1:8791'+path,{method,headers:{Authorization:'Bearer '+$('operatorKey').value,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});const d=await r.json();if(!r.ok)throw Error(d.error||'Error de puente');return d;
+}
+async function loadJobs(){try{const d=await bridge('/v1/pending');$('jobs').replaceChildren();for(const j of d.jobs){
+ const item=document.createElement('div');item.className='item';const t=document.createElement('pre');t.textContent=JSON.stringify({origin:j.origin,steps:j.steps},null,2);item.append(t);
+ const accept=document.createElement('button');accept.textContent='Revisar y ejecutar';accept.onclick=()=>executeJob(j);item.append(accept);
+ const reject=document.createElement('button');reject.textContent='Rechazar';reject.onclick=async()=>{try{await bridge('/v1/jobs/'+j.id+'/reject','POST');await loadJobs()}catch(e){$('status').textContent=e.message}};item.append(reject);$('jobs').append(item)
+ }if(!d.jobs.length)$('status').textContent='Sin solicitudes pendientes';}catch(e){$('status').textContent=e.message}}
+async function executeJob(j){
+ if(busy)return;busy=true;let claimed=false,results=[],status='completed';
+ try{
+ const tab=await active();const target=tab.id;if(new URL(tab.url).origin!==j.origin)throw Error('Abre el origen exacto de la solicitud');
+ if(!confirm('¿Ejecutar solicitud en '+j.origin+'? Revisa cada acción.'))return;
+ await bridge('/v1/jobs/'+j.id+'/claim','POST');claimed=true;
+ for(const a of j.steps){
+ const current=await active();if(current.id!==target||new URL(current.url).origin!==j.origin)throw Error('La pestaña u origen cambió');
+ const snap=await operate('inspect');if(!snap.ok||snap.origin!==j.origin)throw Error(snap.error||'Origen no coincide');
+ if(a.op==='inspect'){results.push({op:'inspect',elements:snap.elements});continue}
+ const matches=snap.elements.filter(e=>e.label===a.label);if(matches.length!==1)throw Error('Etiqueta ausente o ambigua: '+a.label);
+ if(!confirm('Autorizar '+a.op+' en '+j.origin+'\n'+a.label+(a.op==='fill'?'\nValor: '+a.value:''))){status='cancelled';break}
+ const after=await active();if(after.id!==target||new URL(after.url).origin!==j.origin)throw Error('Pestaña cambió');
+ const r=await operate(a.op,{id:matches[0].id,nonce:snap.nonce,label:a.label,value:a.value});results.push({op:a.op,ok:r.ok,error:r.error});if(!r.ok){status='failed';break}
+ }
+ }catch(e){status='failed';results.push({error:e.message});$('status').textContent=e.message}
+ finally{if(claimed){try{const share=confirm('¿Compartir con el cliente los resultados mostrados? Las etiquetas pueden contener datos privados.');$('result').textContent=JSON.stringify(results,null,2);await bridge('/v1/jobs/'+j.id+'/finish','POST',{status,results:share?results:[]});}catch(e){$('status').textContent=e.message}}busy=false;await loadJobs()}
+}
+$('pending').onclick=loadJobs;

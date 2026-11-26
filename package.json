@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "bridge": "node bridge.mjs"
   },
   "dependencies": {
     "playwright": "^1.51.1"

@@ -23,3 +23,6 @@ Vea [docs/SECURITY.md](docs/SECURITY.md). API adicional: profile_status, profile
 
 ## Modo recomendado: Chrome habitual
 La extensión local en `extension/` usa el perfil ya abierto de Chrome y no necesita Node.js. Consulte [instalación y límites](docs/CHROME.md). El motor anterior es opcional. [Seguimiento del proyecto](docs/PROJECT-TRACKING.md).
+
+## Puente local 0.4
+Ejecute `node bridge.mjs` para recibir lotes de clientes locales con autorización explícita desde la extensión. [Documentación](docs/BRIDGE.md).
