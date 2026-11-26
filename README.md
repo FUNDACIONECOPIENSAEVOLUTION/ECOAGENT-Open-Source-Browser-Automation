@@ -20,3 +20,6 @@ npm test prueba el protocolo; pruebas reales de navegador pendientes. Véase doc
 
 ## Privacidad v0.2
 Vea [docs/SECURITY.md](docs/SECURITY.md). API adicional: profile_status, profile_switch(profile,channel), manual(enabled). capture requiere approved:true. Los datos de versiones antiguas en private/ no se migran automáticamente.
+
+## Modo recomendado: Chrome habitual
+La extensión local en `extension/` usa el perfil ya abierto de Chrome y no necesita Node.js. Consulte [instalación y límites](docs/CHROME.md). El motor anterior es opcional. [Seguimiento del proyecto](docs/PROJECT-TRACKING.md).
