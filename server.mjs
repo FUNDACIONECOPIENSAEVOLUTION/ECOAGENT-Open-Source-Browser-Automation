@@ -72,7 +72,7 @@ function json(res,status,data){res.writeHead(status,{'Content-Type':'application
 const server=http.createServer(async(req,res)=>{
  try{
   if(req.headers.host!=='127.0.0.1:'+port)return json(res,403,{error:'Host no permitido'});
-  if(req.method==='GET'&&req.url==='/'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'"});return res.end(await readFile(resolve(root,'index.html')))}
+  if(req.method==='GET'&&req.url==='/'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'"});return res.end(await readFile(resolve(root,'local-panel.html')))}
   if(req.method==='GET'&&['/ui.js','/style.css'].includes(req.url)){res.writeHead(200,{'Content-Type':req.url.endsWith('.js')?'text/javascript':'text/css'});return res.end(await readFile(resolve(root,req.url.slice(1))))}
   if(req.method!=='POST'||req.url!=='/api/v1/batch')return json(res,404,{error:'Ruta desconocida'});
   if(req.headers.origin&&req.headers.origin!==origin)return json(res,403,{error:'Origen no permitido'});
