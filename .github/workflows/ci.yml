@@ -26,3 +26,4 @@ jobs:
           npm install --ignore-scripts
           npm audit --omit=dev --audit-level=high
           node sdk.integration.mjs
+          node http.integration.mjs

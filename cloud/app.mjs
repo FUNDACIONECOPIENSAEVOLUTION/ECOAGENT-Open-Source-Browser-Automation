@@ -71,4 +71,4 @@ http.createServer(async(q,r)=>{try{
  }
  if(q.method==='GET'&&path==='/api/screen'&&operator){if(busy||!page||!allowed(page.url(),origins))return send(r,409,{error:'No available screen'});busy=true;try{if(await page.locator('input[type=password],input[autocomplete=one-time-code]').count())return send(r,403,{error:'Authentication screen blocked'});const png=await page.screenshot({timeout:5000});r.writeHead(200,{'Content-Type':'image/png','Cache-Control':'no-store'});return r.end(png)}finally{busy=false}}
  return send(r,404,{error:'Not found'});
- }catch(e){return send(r,400,{error:String(e.message).slice(0,150)})}}).listen(port,'0.0.0.0');
+ }catch(e){return send(r,400,{error:String(e.message).slice(0,150)})}}).listen(port,process.env.ECOAGENT_CLOUD_BIND||'127.0.0.1');
