@@ -3,17 +3,20 @@ import {StreamableHTTPServerTransport} from '@modelcontextprotocol/sdk/server/st
 import {buildClient} from './client.mjs';
 import {createServer} from './tools.mjs';
 import {authorized,originAllowed} from './remote-policy.mjs';
+import {oauthConfig,metadata,verifyOAuth} from './oauth-policy.mjs';
+const oauth=oauthConfig(process.env);
 const key=process.env.ECOAGENT_CONNECTOR_KEY||'',clientKey=process.env.ECOAGENT_CLIENT_KEY||'';
-if(key.length<32||key===clientKey||key===process.env.ECOAGENT_OPERATOR_KEY)throw Error('Distinct connector secret required');
+if(!oauth&&(key.length<32||key===clientKey||key===process.env.ECOAGENT_OPERATOR_KEY))throw Error('Distinct connector secret required');
 const client=buildClient(process.env.ECOAGENT_API_URL||'http://127.0.0.1:8080',clientKey);
 const port=Number(process.env.CONNECTOR_PORT||8081);
 let active=0;
 const server=http.createServer(async(req,res)=>{
  const send=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(data))};
  if(req.url==='/health'&&req.method==='GET')return send(200,{ok:true,version:'0.11.0',mode:'public-reader'});
+ if(oauth&&req.method==='GET'&&['/.well-known/oauth-protected-resource','/.well-known/oauth-protected-resource/mcp'].includes(req.url))return send(200,metadata(oauth));
  if(req.url!=='/mcp')return send(404,{error:'Not found'});
  if(!originAllowed(req.headers.origin))return send(403,{error:'Browser origins disabled'});
- if(!authorized(req.headers.authorization,key)){res.setHeader('WWW-Authenticate','Bearer');return send(401,{error:'Unauthorized'})}
+ if(!(oauth?await verifyOAuth(req.headers.authorization,oauth):authorized(req.headers.authorization,key))){res.setHeader('WWW-Authenticate',oauth?'Bearer resource_metadata="'+new URL('/.well-known/oauth-protected-resource/mcp',oauth.resource).href+'", scope="'+oauth.scope+'"':'Bearer');return send(401,{error:'Unauthorized'})}
  if(req.method!=='POST')return send(405,{error:'Stateless POST only'});
  if(active>=4)return send(429,{error:'Busy'});
  active++;
