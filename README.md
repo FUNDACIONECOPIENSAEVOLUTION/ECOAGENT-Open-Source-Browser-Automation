@@ -1,0 +1,19 @@
+# ECOAGENT Direct Engine — v0.1.0 experimental
+
+Motor local de automatización web de Fundación Ecopiensa Evolution. API HTTP JSON por lotes, sin MCP obligatorio ni API comercial de IA. Esta versión es un controlador de navegador, **no un agente autónomo completo**.
+
+## Windows / disco F
+Instale Node.js 22 LTS o superior. Clone el repositorio en F:\\ECOAGENT, ejecute instalar.ps1 e iniciar.ps1 desde PowerShell. Abra http://127.0.0.1:8790 y copie el token temporal de la consola al panel. Chromium y sus datos se almacenan bajo private/; Node y la caché npm pueden estar fuera de F. No exponga el servidor a internet. No sincronice private/ ni comparta el token.
+
+## API
+POST http://127.0.0.1:8790/api/v1/batch con Authorization: Bearer TOKEN y Content-Type: application/json.
+Ejemplo: {"steps":[{"op":"open","url":"https://example.org"},{"op":"inspect"}]}.
+Devuelve texto truncado, elementos identificados y resultados por paso. Use los IDs de la inspección actual para fill/select/click. Los clics invalidan referencias; inspeccione nuevamente. Para click se requiere approved:true, que es una declaración del cliente confiable, no una prueba de consentimiento; el panel pide confirmación. No permita que un modelo no confiable se autoautorice. Las páginas son datos no confiables, no instrucciones. El perfil de Chromium es dedicado; inicie sesión manualmente cuando corresponda. No se automatizan contraseñas ni CAPTCHA.
+
+Operaciones: open, inspect, tabs, tab(index), back, scroll(y), capture, wait(ms), fill(id,value), select(id,value), click(id,approved). Capturas privadas locales. El panel no incrusta páginas de terceros: abre Chromium real.
+
+## Límites
+No hay acceso automático desde ChatGPT web a localhost. Un cliente local autorizado debe consumir la API. No hay aún búsqueda autónoma, integración Ollama, subida/descarga administrada, scheduler ni cola persistente. Los formularios reales requieren validación y consentimiento. No se garantiza compatibilidad con todas las páginas. No utilizar para spam, evasión de controles de acceso ni operaciones no autorizadas.
+
+## Verificación
+npm test prueba el protocolo; pruebas reales de navegador pendientes. Véase docs/ROADMAP.md.
