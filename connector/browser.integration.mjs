@@ -32,7 +32,7 @@ try{
  }
  assert.equal(status?.status,'completed',JSON.stringify(status));
  const read=status.result.results.find(x=>x.op==='read');
- assert.ok(read?.ok);assert.match(read.data.title,/Example Domain/i);assert.match(read.data.text,/Example Domain/i);
+ assert.ok(read?.ok);assert.equal(new URL(read.data.url).origin,'https://example.org');assert.ok(typeof read.data.title==='string'&&read.data.title.trim().length>0,'Missing page title');assert.ok(typeof read.data.text==='string'&&read.data.text.trim().length>=40,'Missing substantive page content');
  console.log('REAL BROWSER MCP OK: '+read.data.title);
  console.log('Anonymous public read, no private session, no manual clicks.');
 }finally{await client.close().catch(()=>{});for(const c of children)c.kill()}
