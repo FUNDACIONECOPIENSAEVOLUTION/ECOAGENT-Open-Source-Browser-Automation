@@ -24,12 +24,12 @@ async function execute(a){
  if(await page.locator('input[type=password],input[autocomplete=one-time-code]').count())throw Error('Authentication pages are not supported in this prototype');
  if(a.op==='inspect'){
  refs=[];snapshot=randomUUID();const loc=page.locator('a[href],button,input,textarea,select');const count=Math.min(await loc.count(),180);
- for(let i=0;i<count&&refs.length<60;i++){const h=await loc.nth(i).elementHandle();if(!h||!await h.isVisible())continue;const meta=await h.evaluate(e=>({tag:e.tagName.toLowerCase(),type:e.type||'',autocomplete:e.autocomplete||'',name:e.name||'',label:(e.getAttribute('aria-label')||Array.from(e.labels||[]).map(l=>l.innerText).join(' ')||e.placeholder||e.innerText||e.name||'').trim().slice(0,120)}));if(!sensitive(meta))refs.push({h,meta})}
+ for(let i=0;i<count&&refs.length<60;i++){const h=await loc.nth(i).elementHandle();if(!h||!await h.isVisible())continue;const meta=await h.evaluate(e=>({tag:e.tagName.toLowerCase(),type:e.type||'',autocomplete:e.autocomplete||'',name:e.name||'',label:(e.getAttribute('aria-label')||Array.from(e.labels||[]).map(l=>{const c=l.cloneNode(true);c.querySelectorAll('input,select,textarea,button,script,style').forEach(n=>n.remove());return (c.textContent||'').replace(/\s+/g,' ').trim()}).join(' ').trim()||e.placeholder||e.innerText||e.name||'').trim().slice(0,120)}));if(!sensitive(meta))refs.push({h,meta})}
  return {snapshot,origin:new URL(page.url()).origin,elements:refs.map(({meta},id)=>({id,tag:meta.tag,type:meta.type,label:meta.label}))}
  }
  if(snapshot!==a.snapshot||!refs[a.id])throw Error('Snapshot expired');
  const {h,meta}=refs[a.id];if(!await h.isVisible())throw Error('Element changed');
- const current=await h.evaluate(e=>({type:e.type||'',autocomplete:e.autocomplete||'',name:e.name||'',label:(e.getAttribute('aria-label')||Array.from(e.labels||[]).map(l=>l.innerText).join(' ')||e.placeholder||e.innerText||e.name||'').trim().slice(0,120)}));
+ const current=await h.evaluate(e=>({type:e.type||'',autocomplete:e.autocomplete||'',name:e.name||'',label:(e.getAttribute('aria-label')||Array.from(e.labels||[]).map(l=>{const c=l.cloneNode(true);c.querySelectorAll('input,select,textarea,button,script,style').forEach(n=>n.remove());return (c.textContent||'').replace(/\s+/g,' ').trim()}).join(' ').trim()||e.placeholder||e.innerText||e.name||'').trim().slice(0,120)}));
  if(sensitive(current)||current.label!==meta.label)throw Error('Element changed');
  if(a.op==='fill'){if(meta.tag==='select')await h.selectOption({label:a.value},{timeout:5000});else await h.fill(a.value,{timeout:5000});}
  if(a.op==='click')await h.click({timeout:5000});

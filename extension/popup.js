@@ -13,7 +13,7 @@ function pageOperation(op,arg){
  const sensitive=e=>{const t=(e.getAttribute('type')||'').toLowerCase(),a=e.getAttribute('autocomplete')||'',n=[e.name,e.id,e.getAttribute('aria-label'),e.placeholder,...Array.from(e.labels||[]).map(l=>l.innerText)].join(' ');return /password|hidden|file/i.test(t)||/password|username|one-time-code|cc-|webauthn/i.test(a)||/password|passwd|contrase|otp|secret|token|verification.code|security.code|c[oó]digo de verificaci[oó]n|pin.code/i.test(n)};
  const authPage=()=>!!document.querySelector('input[type=password],input[autocomplete=one-time-code],input[autocomplete=current-password],input[autocomplete=new-password]');
  const visible=e=>e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden';
- const label=e=>(e.getAttribute('aria-label')||Array.from(e.labels||[]).map(l=>l.innerText).join(' ')||e.placeholder||e.innerText||e.name||'').trim().slice(0,160);
+ const label=e=>(e.getAttribute('aria-label')||Array.from(e.labels||[]).map(l=>{const c=l.cloneNode(true);c.querySelectorAll('input,select,textarea,button,script,style').forEach(n=>n.remove());return (c.textContent||'').replace(/\s+/g,' ').trim()}).join(' ').trim()||e.placeholder||e.innerText||e.name||'').trim().slice(0,160);
  if(authPage())return {ok:false,error:'Página de autenticación: usa Chrome manualmente y vuelve a inspeccionar.'};
  if(op==='inspect'){
   const elements=Array.from(document.querySelectorAll('a[href],button,input,textarea,select,[role=button]')).filter(e=>visible(e)&&!sensitive(e)).slice(0,100);

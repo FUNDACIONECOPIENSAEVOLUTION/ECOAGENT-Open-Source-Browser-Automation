@@ -33,7 +33,7 @@ async function inspect(){
   const count=Math.min(await loc.count(),350);
   for(let i=0;i<count&&elements.length<100;i++){
    const l=loc.nth(i);if(!await l.isVisible().catch(()=>false))continue;
-   const info=await l.evaluate(e=>({tag:e.tagName.toLowerCase(),type:e.getAttribute('type')||'',label:e.getAttribute('aria-label')||Array.from(e.labels||[]).map(x=>x.innerText).join(' ')||e.getAttribute('placeholder')||e.innerText||e.getAttribute('name')||'',required:e.required||e.getAttribute('aria-required')==='true',autocomplete:e.getAttribute('autocomplete')||'',name:e.getAttribute('name')||''})).catch(()=>null);
+   const info=await l.evaluate(e=>({tag:e.tagName.toLowerCase(),type:e.getAttribute('type')||'',label:e.getAttribute('aria-label')||Array.from(e.labels||[]).map(l=>{const c=l.cloneNode(true);c.querySelectorAll('input,select,textarea,button,script,style').forEach(n=>n.remove());return (c.textContent||'').replace(/\s+/g,' ').trim()}).join(' ').trim()||e.getAttribute('placeholder')||e.innerText||e.getAttribute('name')||'',required:e.required||e.getAttribute('aria-required')==='true',autocomplete:e.getAttribute('autocomplete')||'',name:e.getAttribute('name')||''})).catch(()=>null);
    if(!info||sensitiveField(info))continue;
    const id=revision+':'+elements.length;
    // Retain an element handle, not a shifting nth index.

@@ -22,7 +22,7 @@ try{
  await batch([{op:'profile_switch',profile:'smoke',channel:'chromium'}]);
  const blocked=await post([{op:'inspect'}]);assert.equal(blocked.data.results[0].ok,false);console.log('API: modo privado bloquea inspeccion');
  await batch([{op:'manual',enabled:false},{op:'open',url:'http://127.0.0.1:'+fixture.address().port}]);
- const [view]=await batch([{op:'inspect'}]);const id=label=>{const found=view.elements.filter(e=>e.label.trim()===label);assert.equal(found.length,1,label);return found[0].id};
+ const [view]=await batch([{op:'inspect'}]);const id=label=>{const found=view.elements.filter(e=>e.label.trim()===label);assert.equal(found.length,1,label+'; etiquetas detectadas: '+JSON.stringify(view.elements.map(e=>e.label)));return found[0].id};
  await batch([{op:'fill',id:id('Organizacion'),value:'Organizacion de prueba'},{op:'select',id:id('Pais'),value:'Colombia'},{op:'fill',id:id('Proyecto'),value:'ECOAGENT test'}]);console.log('API: campos y seleccion correctos');
  await batch([{op:'click',id:id('Confirmar prueba'),approved:true}]);
  const [v2]=await batch([{op:'inspect'}]);const submit=v2.elements.find(e=>e.label.trim()==='Enviar prueba');assert.ok(submit);
