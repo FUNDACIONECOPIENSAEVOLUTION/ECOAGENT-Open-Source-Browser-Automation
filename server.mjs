@@ -72,8 +72,21 @@ function json(res,status,data){res.writeHead(status,{'Content-Type':'application
 const server=http.createServer(async(req,res)=>{
  try{
   if(req.headers.host!=='127.0.0.1:'+port)return json(res,403,{error:'Host no permitido'});
-  if(req.method==='GET'&&req.url==='/'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'"});return res.end(await readFile(resolve(root,'local-panel.html')))}
+  if(req.method==='GET'&&req.url==='/'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'"});return res.end(await readFile(resolve(root,'local-panel.html')))}
   if(req.method==='GET'&&['/ui.js','/style.css'].includes(req.url)){res.writeHead(200,{'Content-Type':req.url.endsWith('.js')?'text/javascript':'text/css'});return res.end(await readFile(resolve(root,req.url.slice(1))))}
+  if(req.method==='GET'&&req.url==='/api/v1/live'){
+   if(req.headers.origin&&req.headers.origin!==origin)return json(res,403,{error:'Origen no permitido'});
+   if(!auth(req))return json(res,401,{error:'Token requerido'});
+   if(manual||!page||busy)return json(res,409,{error:'Visor no disponible: modo privado, navegador cerrado o motor ocupado'});
+   busy=true;
+   try{
+    for(const frame of page.frames()){
+     if(await frame.locator('input[type=password],input[autocomplete=one-time-code],input[autocomplete=current-password],input[autocomplete=new-password]').count())return json(res,403,{error:'Visor bloqueado en página de autenticación'});
+    }
+    const png=await page.screenshot({type:'jpeg',quality:65,timeout:5000});
+    res.writeHead(200,{'Content-Type':'image/jpeg','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(png);
+   }finally{busy=false}
+  }
   if(req.method!=='POST'||req.url!=='/api/v1/batch')return json(res,404,{error:'Ruta desconocida'});
   if(req.headers.origin&&req.headers.origin!==origin)return json(res,403,{error:'Origen no permitido'});
   if(!auth(req))return json(res,401,{error:'Token requerido'});
