@@ -138,7 +138,7 @@ const server=http.createServer(async(req,res)=>{
   }finally{busy=false}
  }catch(e){return json(res,400,{error:clips(e.message)})}
 });
-server.listen(port,'127.0.0.1',()=>console.log('ECOAGENT '+origin+'\nToken temporal (solo local): '+token));
+server.listen(port,'127.0.0.1',()=>console.log('ECOAGENT '+origin+(process.env.ECOAGENT_HIDE_TOKENS==='true'?'\nToken oculto en modo unificado. Use arrancar-ecoagent.ps1 para acceso manual.':'\nToken temporal (solo local): '+token)));
 
 // Only an explicitly forked parent can request this test/maintenance shutdown.
 if(process.send)process.on('message',async m=>{if(m?.type!=='ecoagent-shutdown')return;try{if(context)await context.close()}finally{server.close(()=>process.exit(0))}});

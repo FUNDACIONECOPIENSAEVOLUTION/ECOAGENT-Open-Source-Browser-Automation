@@ -41,4 +41,4 @@ const server=http.createServer(async(req,res)=>{
  return send(res,409,{error:'Acción no permitida para estado o credencial'});
  }catch(e){return send(res,400,{error:String(e.message).slice(0,160)})}
 });
-server.listen(port,'127.0.0.1',()=>console.log('ECOAGENT bridge http://'+host+'\nCLIENTE (solo cola): '+clientKey+'\nOPERADOR (solo extension): '+operatorKey));
+server.listen(port,'127.0.0.1',()=>console.log('ECOAGENT bridge http://'+host+(process.env.ECOAGENT_HIDE_TOKENS==='true'?'\nClaves ocultas en modo unificado.':'\nCLIENTE (solo cola): '+clientKey+'\nOPERADOR (solo extension): '+operatorKey)));
