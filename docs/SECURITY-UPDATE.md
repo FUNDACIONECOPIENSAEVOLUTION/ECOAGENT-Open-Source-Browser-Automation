@@ -1,0 +1,2 @@
+# Connector 0.11.1
+Pin Zod 4.6.7 and MCP SDK 1.32.2 in response to GHSA-mrhx-c7xc-m3w5 (patched from Zod 4.6.6). CI now installs dependencies, audits high/critical findings and exercises actual SDK tool discovery and invocation using an in-memory transport and mock backend. No live browser or remote connection is established by this test. Verify npm audit and npm ls zod after installing; do not expose the service until security and remote transport checks pass. No forced audit fix.

@@ -19,3 +19,10 @@ jobs:
           node --check server.mjs
           node --check connector/remote.mjs
           node --check connector/tools.mjs
+
+      - name: Install connector and audit
+        working-directory: connector
+        run: |
+          npm install --ignore-scripts
+          npm audit --omit=dev --audit-level=high
+          node sdk.integration.mjs
