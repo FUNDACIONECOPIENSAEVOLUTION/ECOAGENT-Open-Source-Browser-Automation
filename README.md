@@ -26,3 +26,6 @@ La extensión local en `extension/` usa el perfil ya abierto de Chrome y no nece
 
 ## Puente local 0.4
 Ejecute `node bridge.mjs` para recibir lotes de clientes locales con autorización explícita desde la extensión. [Documentación](docs/BRIDGE.md).
+
+## Cloud 0.6
+Remote single-operator preview with compact batches and automated protocol checks. [Cloud documentation](docs/CLOUD.md). Not deployed; no production or authenticated browsing yet.

@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {validateBatch,executeBatch} from './batch.mjs';const origins=new Set(['https://example.org']);
+test('accept compact batch',()=>assert.equal(validateBatch({steps:[{op:'open',url:'https://example.org'},{op:'inspect'}]},origins).steps.length,2));
+test('reject unapproved origin and arbitrary code',()=>{assert.throws(()=>validateBatch({steps:[{op:'open',url:'https://evil.test'}]},origins));assert.throws(()=>validateBatch({steps:[{op:'eval'}]},origins))});
+test('fail closed on ambiguous label',async()=>{let count=0;const r=await executeBatch({steps:[{op:'find',label:'Name',action:'fill',value:'X'},{op:'click'}]},async()=>{count++;return {elements:[{label:'Name'},{label:'Name'}]}});assert.equal(r.ok,false);assert.equal(count,1)});
+test('exact label resolves fresh snapshot',async()=>{const calls=[];const r=await executeBatch({steps:[{op:'find',label:'Name',action:'fill',value:'X'}]},async a=>{calls.push(a);return a.op==='inspect'?{snapshot:'fresh',elements:[{id:4,label:'Name'}]}:{ok:true}});assert.equal(r.ok,true);assert.deepEqual(calls[1],{op:'fill',id:4,snapshot:'fresh',value:'X'})});
