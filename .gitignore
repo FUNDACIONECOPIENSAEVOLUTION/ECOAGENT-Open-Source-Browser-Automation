@@ -2,3 +2,11 @@ node_modules/
 private/
 .env
 *.log
+
+profiles/
+*.sqlite*
+*.pem
+*.key
+.env.*
+storageState*.json
+cookies*.json
