@@ -29,3 +29,4 @@ jobs:
           npm audit --omit=dev --audit-level=high
           node sdk.integration.mjs
           node http.integration.mjs
+          node desktop.integration.mjs
