@@ -11,7 +11,7 @@ const root=dirname(fileURLToPath(import.meta.url));
 const home=resolve(process.env.LOCALAPPDATA || (process.platform==='win32'?resolve(homedir(),'AppData','Local'):resolve(homedir(),'.local','share')),'ECOAGENT');
 await mkdir(home,{recursive:true});
 const token=randomBytes(32).toString('hex');
-const port=8790, origin='http://127.0.0.1:'+port;
+const port=Number(process.env.ECOAGENT_LOCAL_PORT||8790);if(!Number.isInteger(port)||port<1024||port>65535)throw Error('Puerto inválido');const origin='http://127.0.0.1:'+port;
 let context,page,busy=false,revision=0,activeProfile='institutional',browserChannel='chrome',manual=false;
 const refs=new Map();
 const clips=s=>String(s??'').slice(0,180);
@@ -95,3 +95,6 @@ const server=http.createServer(async(req,res)=>{
  }catch(e){return json(res,400,{error:clips(e.message)})}
 });
 server.listen(port,'127.0.0.1',()=>console.log('ECOAGENT '+origin+'\nToken temporal (solo local): '+token));
+
+// Only an explicitly forked parent can request this test/maintenance shutdown.
+if(process.send)process.on('message',async m=>{if(m?.type!=='ecoagent-shutdown')return;try{if(context)await context.close()}finally{server.close(()=>process.exit(0))}});
