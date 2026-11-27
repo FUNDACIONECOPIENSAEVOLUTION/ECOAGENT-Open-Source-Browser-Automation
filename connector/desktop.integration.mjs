@@ -7,7 +7,7 @@ const browserEnv=Object.fromEntries(['PLAYWRIGHT_BROWSERS_PATH','ECOAGENT_TEST_D
 const client=new Client({name:'ecoagent-desktop-test',version:'1.0.0'});
 try{
  await client.connect(new StdioClientTransport({command:process.execPath,env:browserEnv,stderr:'inherit',args:[fileURLToPath(new URL('./desktop.mjs',import.meta.url))]}));
- const tools=(await client.listTools()).tools;assert.equal(tools.length,47);assert.ok(tools.some(t=>t.name==='ecoagent_discover'));
+ const tools=(await client.listTools()).tools;assert.equal(tools.length,49);assert.ok(tools.some(t=>t.name==='ecoagent_discover'));
  const transfer=async args=>{const r=await client.callTool({name:'ecoagent_file_transfer',arguments:args});assert.equal(r.isError??false,false);return JSON.parse(r.content[0].text)};
  const bytes=Buffer.from('Existing file bytes');const digest=createHash('sha256').update(bytes).digest('hex');const started=await transfer({action:'begin',name:'existing.txt',size:bytes.length,sha256:digest});await transfer({action:'append',transfer:started.transfer,offset:0,data:bytes.toString('base64')});const received=await transfer({action:'finish',transfer:started.transfer});assert.equal(received.document.sha256,digest);assert.equal(received.submitted,false);
  const h=await client.callTool({name:'ecoagent_local_health',arguments:{}});assert.equal(JSON.parse(h.content[0].text).ok,true);
