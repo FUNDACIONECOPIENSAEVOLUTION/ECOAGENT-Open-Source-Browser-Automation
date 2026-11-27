@@ -95,6 +95,7 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
    const c=await browser.newContext({acceptDownloads:demo,serviceWorkers:'block',javaScriptEnabled:s.dynamicDemo||s.dynamicDraft||(!demo&&!draftMode)});
    await c.route('**/*',async r=>{
     const req=r.request();
+    if(s.localInteraction&&!demo){s.localInteraction.blocked++;return r.abort()}
     if(s.postPermit?.consume({url:req.url(),method:req.method(),main:req.isNavigationRequest()&&req.frame()===s.page.mainFrame()})){
      if(demo){s.postStatus=200;return r.fulfill({status:200,contentType:'text/html',body:'<html><title>Synthetic receipt</title><body>OFFLINE TEST ONLY <a href="'+fixtureDownload+'">Download synthetic receipt</a></body></html>'})}
      try{const res=await r.fetch({maxRedirects:0,maxRetries:0,timeout:15000});try{s.postStatus=res.status();if(res.status()>=300&&res.status()<400)return r.fulfill({status:409,contentType:'text/plain',body:'Submission response redirect requires manual review'});return await r.fulfill({response:res})}finally{await res.dispose()}}catch{await r.abort().catch(()=>{});return}
@@ -201,6 +202,27 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
   const blocked=await navigationGuard(s,false);
   if(blocked)return blocked;
   await Promise.all([s.page.waitForURL(r.href,{timeout:5000}),r.handle.click({timeout:5000})]);s.status=200;s.statuses.set(s.page,200);return inspect(s);
+ }),
+ dynamicControlPlan:(id,ref,element)=>run(id,async s=>{
+  await assertSafePage(s);
+  if(!(s.dynamicDraft||s.dynamicDemo)||s.status!==200)throw new StaleReferenceError('Dynamic draft required');
+  const r=findRef(ref,s.snapshot,s.refs,element);
+  if(r.info.tag!=='button'||r.info.type!=='button'||!await r.handle.isVisible())throw new StaleReferenceError('Explicit non-submit button required');
+  const info=await r.handle.evaluate(e=>({valid:e.isConnected&&!e.disabled&&e.type==='button'&&!e.hasAttribute('formaction')&&!e.hasAttribute('formmethod')&&!e.hasAttribute('formtarget'),label:(e.getAttribute('aria-label')||e.innerText||'').trim().slice(0,160)}));
+  if(!info.valid||!info.label)throw new StaleReferenceError('Button unavailable');
+  return {session:s.id,snapshot:s.snapshot,element,tab:s.tabs.indexOf(s.page)+1,url:s.page.url(),label:info.label,demo:s.demo};
+ }),
+ dynamicControlClick:(id,ref,element,expected)=>run(id,async s=>{
+  await assertSafePage(s);
+  if(!(s.dynamicDraft||s.dynamicDemo)||s.status!==200)throw new StaleReferenceError('Dynamic draft required');
+  const r=findRef(ref,s.snapshot,s.refs,element);
+  const valid=await r.handle.evaluate((e,label)=>e.isConnected&&!e.disabled&&e.tagName==='BUTTON'&&e.type==='button'&&!e.hasAttribute('formaction')&&!e.hasAttribute('formmethod')&&!e.hasAttribute('formtarget')&&(e.getAttribute('aria-label')||e.innerText||'').trim().slice(0,160)===label,expected.label);
+  if(!valid||expected.session!==s.id||expected.snapshot!==s.snapshot||expected.element!==element||expected.url!==s.page.url()||expected.tab!==s.tabs.indexOf(s.page)+1)throw new StaleReferenceError('Control changed');
+  const before=s.page.url();s.localInteraction={blocked:0};
+  let blocked=0;
+  try{await r.handle.click({timeout:5000});await s.page.waitForTimeout(300);if(s.page.url()!==before)throw new StaleReferenceError('Unexpected navigation');blocked=s.localInteraction.blocked}
+  finally{s.localInteraction=null}
+  return {...await inspect(s),networkRequestsBlocked:blocked,externalActionConfirmed:false,submitted:false};
  }),
  toggle:(id,ref,element,checked)=>run(id,async s=>{
   if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Static draft mode required');
