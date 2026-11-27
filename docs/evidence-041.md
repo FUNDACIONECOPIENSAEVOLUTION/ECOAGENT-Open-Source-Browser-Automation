@@ -1,0 +1,3 @@
+# ECOAGENT v0.41.0 — response evidence and duplicate guard
+
+In-memory ledger reserves an endpoint+form digest before an approved POST, blocks identical attempts even across isolated browser sessions, and records uncertain or observed outcomes. No automatic retry. Current response evidence includes bounded text, title and evidence hash, with no assertion that it is an official receipt. Only the current exact endpoint is eligible. Ledger resets on connector restart; changed payloads and different endpoints are not deduplicated. No durable evidence export, dynamic external POST or real portal acceptance yet. CI pending.

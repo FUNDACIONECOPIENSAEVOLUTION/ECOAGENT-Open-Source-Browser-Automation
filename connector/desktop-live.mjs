@@ -4,6 +4,7 @@ import {canDraft,validateDraft,findRef,StaleReferenceError} from './desktop-live
 import {sensitiveField} from '../privacy.mjs';
 import {createHash} from 'node:crypto';
 import {createPostPermit} from './submission-permit.mjs';
+import {createSubmissionLedger} from './submission-ledger.mjs';
 const fixture='https://example.org/ecoagent-local-fixture';
 const fixtureNext=fixture+'/next';
 const fixtureDownload=fixture+'/document.txt';
@@ -13,7 +14,7 @@ const sampleHash=createHash('sha256').update(sampleDocument).digest('hex');
 const html='<html><head><title>ECOAGENT local form fixture</title></head><body><h1>Draft only</h1><form method="post" enctype="multipart/form-data" action="'+fixtureSubmit+'"><label>Project <input name="project" required></label><label>Summary <textarea name="summary"></textarea></label><label>Category <select name="category"><option>Research</option><option>Environment</option></select></label><label>Accept demo <input type="checkbox" name="demoConsent"></label><label>Sample document <input type="file" name="demoDocument" multiple></label><label>Password <input type="password" name="password"></label><button type="submit">Submit</button><a href="'+fixtureNext+'">Next page</a></form></body></html>';
 const dynamicHTML='<html><head><title>ECOAGENT dynamic fixture</title></head><body><form id="draft"><label>Project <input name="project" required></label><button type="button" id="expand">Add details</button><section id="details" hidden><label>Summary <textarea name="summary" required></textarea></label></section><button type="button" id="nextStage">Next stage</button><section id="budgetStage" hidden><label>Budget <input name="budget" type="number" min="1" required></label><button type="button" id="previousStage">Previous stage</button></section><button type="submit">Submit</button></form><script>document.getElementById("expand").addEventListener("click",()=>{document.getElementById("details").hidden=false});document.getElementById("nextStage").addEventListener("click",()=>{const f=document.getElementById("draft");const project=f.elements.project;const summary=f.elements.summary;if(!project.value.trim()||!summary.value.trim())return;document.getElementById("budgetStage").hidden=false;document.getElementById("details").hidden=true;project.closest("label").hidden=true;document.getElementById("expand").hidden=true;document.getElementById("nextStage").hidden=true});document.getElementById("previousStage").addEventListener("click",()=>{document.getElementById("budgetStage").hidden=true;document.getElementById("details").hidden=false;document.querySelector("[name=project]").closest("label").hidden=false;document.getElementById("expand").hidden=false;document.getElementById("nextStage").hidden=false});document.getElementById("draft").addEventListener("submit",e=>e.preventDefault());</script></body></html>';
 export const maxTabs=80;
-export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
+export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=createSubmissionLedger()}={}){
  let session=null;
  async function close(){const s=session;session=null;if(s){clearTimeout(s.timer);try{await s.browser.close().catch(()=>{})}finally{onClose(s.id)}}return {closed:!!s}}
  function arm(s){clearTimeout(s.timer);s.timer=setTimeout(()=>{if(session===s&&!s.active)void close();else if(session===s)arm(s)},s.handoff?Math.max(ttl,900000):ttl);s.timer.unref()}
@@ -243,12 +244,24 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
  submitForm:(id,ref,element,expected)=>run(id,async s=>{
   const plan=await submissionPlan(s,ref,element);if(JSON.stringify(plan)!==JSON.stringify(expected))throw new StaleReferenceError('Form changed');
   const r=findRef(ref,s.snapshot,s.refs,element);
+  const entry=ledger.reserve(plan);
   s.postPermit=createPostPermit(plan.action);s.postStatus=null;
   try{await r.handle.click({timeout:15000});await s.page.waitForLoadState('domcontentloaded',{timeout:15000})}catch{}finally{
    const attempted=s.postPermit.used();s.postPermit=null;
-   s.lastSubmission={attempted,httpStatus:s.postStatus,confirmed:false,submitted:false,demo:s.demo,requiresReceiptReview:attempted};
+   s.lastSubmission=ledger.record(entry.id,{attempted,httpStatus:s.postStatus});
+   s.status=s.postStatus;s.statuses?.set(s.page,s.status);
   }
   return s.lastSubmission;
+ }),
+ submissionEvidence:(id)=>run(id,async s=>{
+  if(!s.lastSubmission)throw new StaleReferenceError('No submission attempt');
+  const entry=s.lastSubmission;
+  if(!entry.attempted||entry.httpStatus===null)return {...entry,evidenceAvailable:false};
+  await assertSafePage(s);
+  const url=readURL(s.page.url());if(url.href!==entry.endpoint)return {...entry,evidenceAvailable:false,reason:'page_changed'};
+  const title=(await s.page.title()).slice(0,300);
+  const body=(await s.page.locator('body').innerText({timeout:5000})).slice(0,12000);
+  return {...entry,evidenceAvailable:true,title,text:body,evidenceSHA256:createHash('sha256').update(JSON.stringify([url.href,title,body])).digest('hex'),confirmed:false,submitted:false};
  }),
  attachDemo:(id)=>run(id,async s=>{
   if(!s.demo||s.page.url()!==fixture)throw Error('Offline demo form required');
