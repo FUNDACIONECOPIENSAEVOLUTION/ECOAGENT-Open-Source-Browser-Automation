@@ -10,12 +10,12 @@ import {createSessions} from './desktop-sessions.mjs';
 import {createLive} from './desktop-live.mjs';
 import {createLivePool} from './live-pool.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.38.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.39.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.38.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.39.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -117,6 +117,29 @@ server.tool('ecoagent_attach_document','Select a locally approved document in th
  const p=await attachmentPlan(args);
  approvals.consume(args.approval,{session:args.session,action:'document-attach',digest:p.digest});
  const d=vault.get(args.document);try{return await live.attachDocument(args.session,args.snapshot,args.element,d)}finally{d.buffer.fill(0)}
+}));
+const batchAttachmentArgs={...liveRef,documents:z.array(sessionId).min(1).max(4)};
+async function batchAttachmentPlan(args){
+ if(new Set(args.documents).size!==args.documents.length)throw Error('Duplicate documents');
+ const target=await live.attachmentTarget(args.session,args.snapshot,args.element);
+ if(args.documents.length>1&&!target.multiple)throw Error('Input does not accept multiple documents');
+ const metas=args.documents.map(id=>vault.list().find(d=>d.id===id));
+ if(metas.some(d=>!d))throw Error('Document unavailable');
+ if(new Set(metas.map(d=>d.name)).size!==metas.length)throw Error('Duplicate filenames');
+ const digest=createHash('sha256').update(JSON.stringify([target,metas.map(d=>[d.id,d.sha256])])).digest('hex');
+ return {target,metas,digest};
+}
+server.tool('ecoagent_request_attachments','Request one local approval for up to four exact vault files in one draft input. No external upload.',batchAttachmentArgs,{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async(args)=>exclusive(async()=>{
+ await ensureLocalUI();const p=await batchAttachmentPlan(args);
+ const description=('Attach '+p.metas.map(d=>d.name+' ('+d.size+' bytes)').join(', ')+' to '+p.target.label+' at '+p.target.url);
+ if(description.length>300)throw Error('Approval description too long; use smaller batch');
+ const a=approvals.request({session:args.session,action:'document-attach',description,digest:p.digest});
+ return {approval:a.id,state:a.state,expires:a.expires,target:p.target,documents:p.metas};
+}));
+server.tool('ecoagent_attach_documents','Select approved exact files in a draft input and verify their browser-side bytes. No external upload or submission.',{...batchAttachmentArgs,approval:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async(args)=>exclusive(async()=>{
+ const p=await batchAttachmentPlan(args);
+ approvals.consume(args.approval,{session:args.session,action:'document-attach',digest:p.digest});
+ const docs=[];try{for(const id of args.documents)docs.push(vault.get(id));return await live.attachDocuments(args.session,args.snapshot,args.element,docs)}finally{for(const d of docs)d.buffer.fill(0)}
 }));
 server.tool('ecoagent_reload','Reload the active browser tab. Blocks if unsaved draft fields or attachments exist unless the user explicitly agrees to discard them. Never submit a form.',{session:sessionId,discard:z.boolean().default(false)},{readOnlyHint:false,destructiveHint:true,openWorldHint:true},async({session,discard})=>exclusive(()=>live.reload(session,discard)));
 server.tool('ecoagent_history','Navigate back or forward in the active browser tab. Blocks unsaved draft changes unless the user explicitly agrees to discard them.',{session:sessionId,direction:z.enum(['back','forward']),discard:z.boolean().default(false)},{readOnlyHint:false,destructiveHint:true,openWorldHint:true},async({session,direction,discard})=>exclusive(()=>live.history(session,direction,discard)));

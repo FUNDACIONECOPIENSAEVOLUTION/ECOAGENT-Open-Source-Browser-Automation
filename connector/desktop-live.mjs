@@ -8,7 +8,7 @@ const fixtureNext=fixture+'/next';
 const fixtureDownload=fixture+'/document.txt';
 const sampleDocument=Buffer.from('ECOAGENT synthetic document for offline testing.\n','utf8');
 const sampleHash=createHash('sha256').update(sampleDocument).digest('hex');
-const html='<html><head><title>ECOAGENT local form fixture</title></head><body><h1>Draft only</h1><form><label>Project <input name="project" required></label><label>Summary <textarea name="summary"></textarea></label><label>Category <select name="category"><option>Research</option><option>Environment</option></select></label><label>Accept demo <input type="checkbox" name="demoConsent"></label><label>Sample document <input type="file" name="demoDocument"></label><label>Password <input type="password" name="password"></label><button type="submit">Submit</button><a href="'+fixtureNext+'">Next page</a></form></body></html>';
+const html='<html><head><title>ECOAGENT local form fixture</title></head><body><h1>Draft only</h1><form><label>Project <input name="project" required></label><label>Summary <textarea name="summary"></textarea></label><label>Category <select name="category"><option>Research</option><option>Environment</option></select></label><label>Accept demo <input type="checkbox" name="demoConsent"></label><label>Sample document <input type="file" name="demoDocument" multiple></label><label>Password <input type="password" name="password"></label><button type="submit">Submit</button><a href="'+fixtureNext+'">Next page</a></form></body></html>';
 const dynamicHTML='<html><head><title>ECOAGENT dynamic fixture</title></head><body><form id="draft"><label>Project <input name="project" required></label><button type="button" id="expand">Add details</button><section id="details" hidden><label>Summary <textarea name="summary" required></textarea></label></section><button type="button" id="nextStage">Next stage</button><section id="budgetStage" hidden><label>Budget <input name="budget" type="number" min="1" required></label><button type="button" id="previousStage">Previous stage</button></section><button type="submit">Submit</button></form><script>document.getElementById("expand").addEventListener("click",()=>{document.getElementById("details").hidden=false});document.getElementById("nextStage").addEventListener("click",()=>{const f=document.getElementById("draft");const project=f.elements.project;const summary=f.elements.summary;if(!project.value.trim()||!summary.value.trim())return;document.getElementById("budgetStage").hidden=false;document.getElementById("details").hidden=true;project.closest("label").hidden=true;document.getElementById("expand").hidden=true;document.getElementById("nextStage").hidden=true});document.getElementById("previousStage").addEventListener("click",()=>{document.getElementById("budgetStage").hidden=true;document.getElementById("details").hidden=false;document.querySelector("[name=project]").closest("label").hidden=false;document.getElementById("expand").hidden=false;document.getElementById("nextStage").hidden=false});document.getElementById("draft").addEventListener("submit",e=>e.preventDefault());</script></body></html>';
 export const maxTabs=80;
 export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
@@ -192,7 +192,7 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
   if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Static draft required');
   const r=findRef(ref,s.snapshot,s.refs,element);
   if(r.info.tag!=='input'||r.info.type!=='file'||r.info.disabled||!await r.handle.evaluate(e=>e.isConnected&&e.type==='file'&&!e.disabled))throw Error('Invalid file input');
-  return {session:s.id,snapshot:s.snapshot,element,url:s.page.url(),tab:s.tabs.indexOf(s.page)+1,label:String(r.info.label).trim().slice(0,160)};
+  return {session:s.id,snapshot:s.snapshot,element,url:s.page.url(),tab:s.tabs.indexOf(s.page)+1,label:String(r.info.label).trim().slice(0,160),multiple:await r.handle.evaluate(e=>e.multiple),accept:await r.handle.evaluate(e=>e.accept)};
  }),
  attachDocument:(id,ref,element,document)=>run(id,async s=>{
   if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Static draft required');
@@ -202,6 +202,21 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
   const f=await r.handle.evaluate(e=>({count:e.files.length,name:e.files[0]?.name,size:e.files[0]?.size}));
   if(f.count!==1||f.name!==document.name||f.size!==document.size)throw Error('Attachment mismatch');
   return {attached:true,submitted:false,document:document.id,name:f.name,size:f.size,sha256:document.sha256};
+ }),
+ attachDocuments:(id,ref,element,documents)=>run(id,async s=>{
+  await assertSafePage(s);
+  if(!(s.demo||s.draftMode)||s.status!==200)throw new StaleReferenceError('Draft required');
+  const r=findRef(ref,s.snapshot,s.refs,element);
+  if(r.info.tag!=='input'||r.info.type!=='file'||!Array.isArray(documents)||documents.length<1||documents.length>4)throw new StaleReferenceError('Invalid attachment');
+  const state=await r.handle.evaluate(e=>({valid:e.isConnected&&e.type==='file'&&!e.disabled,multiple:e.multiple,count:e.files.length}));
+  if(!state.valid||(documents.length>1&&!state.multiple)||state.count)throw new StaleReferenceError('Input unavailable, single-file only or already populated');
+  await r.handle.setInputFiles(documents.map(d=>({name:d.name,mimeType:d.mimeType,buffer:d.buffer})),{timeout:10000});
+  const files=await r.handle.evaluate(async e=>Promise.all(Array.from(e.files,async f=>{
+   const digest=await crypto.subtle.digest('SHA-256',await f.arrayBuffer());
+   return {name:f.name,size:f.size,sha256:Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('')};
+  })));
+  if(files.length!==documents.length||files.some((f,i)=>f.name!==documents[i].name||f.size!==documents[i].size||f.sha256!==documents[i].sha256))throw Error('Attachment verification failed');
+  return {attached:true,files,submitted:false,externalUploadConfirmed:false};
  }),
  attachDemo:(id)=>run(id,async s=>{
   if(!s.demo||s.page.url()!==fixture)throw Error('Offline demo form required');
