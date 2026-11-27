@@ -69,7 +69,17 @@ try{
   assert.equal(b.submitted,false);
   const summary=b.elements.find(e=>e.label==='Summary');assert.ok(summary?.draft);
   b=await call('ecoagent_live_draft',{session:b.session,snapshot:b.snapshot,element:summary.id,value:'Synthetic details'});
+  assert.equal((await call('ecoagent_live_review',{session:b.session})).ready,false);
+  b=await call('ecoagent_click_demo',{session:b.session,snapshot:b.snapshot,element:b.elements.find(e=>e.label==='Next stage').id});
+  assert.ok(!b.elements.some(e=>e.label==='Project'));
+  assert.equal((await call('ecoagent_live_review',{session:b.session})).ready,false);
+  b=await call('ecoagent_live_draft',{session:b.session,snapshot:b.snapshot,element:b.elements.find(e=>e.label==='Budget').id,value:'1000'});
   assert.equal((await call('ecoagent_live_review',{session:b.session})).ready,true);
+  b=await call('ecoagent_click_demo',{session:b.session,snapshot:b.snapshot,element:b.elements.find(e=>e.label==='Previous stage').id});
+  assert.equal((await call('ecoagent_live_verify',{session:b.session,snapshot:b.snapshot,element:b.elements.find(e=>e.label==='Summary').id,value:'Synthetic details'})).matches,true);
+  b=await call('ecoagent_click_demo',{session:b.session,snapshot:b.snapshot,element:b.elements.find(e=>e.label==='Next stage').id});
+  assert.equal((await call('ecoagent_live_verify',{session:b.session,snapshot:b.snapshot,element:b.elements.find(e=>e.label==='Budget').id,value:'1000'})).matches,true);
+  b=await call('ecoagent_click_demo',{session:b.session,snapshot:b.snapshot,element:b.elements.find(e=>e.label==='Previous stage').id});
   assert.equal((await call('ecoagent_live_verify',{session:b.session,snapshot:b.snapshot,element:b.elements.find(e=>e.label==='Project').id,value:'Dynamic synthetic project'})).matches,true);
   assert.equal(b.elements.find(e=>e.label==='Submit').click,false);
   await call('ecoagent_live_close',{session:b.session});console.log('OFFLINE DYNAMIC FORM MCP OK');
