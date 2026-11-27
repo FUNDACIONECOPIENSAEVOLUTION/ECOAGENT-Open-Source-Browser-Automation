@@ -6,7 +6,7 @@ const browserEnv=Object.fromEntries(['PLAYWRIGHT_BROWSERS_PATH','ECOAGENT_TEST_D
 const client=new Client({name:'ecoagent-desktop-test',version:'1.0.0'});
 try{
  await client.connect(new StdioClientTransport({command:process.execPath,env:browserEnv,stderr:'inherit',args:[fileURLToPath(new URL('./desktop.mjs',import.meta.url))]}));
- const tools=(await client.listTools()).tools;assert.equal(tools.length,31);assert.ok(tools.some(t=>t.name==='ecoagent_discover'));
+ const tools=(await client.listTools()).tools;assert.equal(tools.length,33);assert.ok(tools.some(t=>t.name==='ecoagent_discover'));
  const h=await client.callTool({name:'ecoagent_local_health',arguments:{}});assert.equal(JSON.parse(h.content[0].text).ok,true);
  const d=await client.callTool({name:'ecoagent_local_read',arguments:{url:'https://invalid.example/'}});assert.equal(d.isError,true);
  const denied=await client.callTool({name:'ecoagent_discover',arguments:{urls:['https://example.org/','https://invalid.example/']}});assert.equal(denied.isError,true);
@@ -37,7 +37,14 @@ try{
   assert.equal((await call('ecoagent_tabs',{session:a.session})).tabs.length,2);
   a=await call('ecoagent_switch_tab',{session:a.session,tab:1});
   assert.equal((await call('ecoagent_live_verify',{session:a.session,snapshot:a.snapshot,element:a.elements.find(e=>e.label==='Project').id,value:'Synthetic project'})).matches,true);
+  const blocked=await call('ecoagent_reload',{session:a.session});assert.equal(blocked.blocked,true);assert.equal(blocked.reason,'unsaved_draft');
+  assert.equal((await call('ecoagent_live_verify',{session:a.session,snapshot:a.snapshot,element:a.elements.find(e=>e.label==='Project').id,value:'Synthetic project'})).matches,true);
+  const previousSnapshot=a.snapshot;
+  a=await call('ecoagent_reload',{session:a.session,discard:true});assert.equal(a.reloaded,true);assert.notEqual(a.snapshot,previousSnapshot);
   const clicked=await call('ecoagent_click_demo',{session:a.session,snapshot:a.snapshot,element:a.elements.find(e=>e.label==='Next page').id});assert.equal(clicked.title,'Second page');
+  const back=await call('ecoagent_history',{session:a.session,direction:'back'});assert.equal(back.title,'ECOAGENT local form fixture');
+  const forward=await call('ecoagent_history',{session:a.session,direction:'forward'});assert.equal(forward.title,'Second page');
+  const refreshed=await call('ecoagent_reload',{session:a.session});assert.equal(refreshed.reloaded,true);assert.equal(refreshed.title,'Second page');
   await call('ecoagent_live_close',{session:a.session});console.log('OFFLINE LIVE FORM MCP OK');
  }
  if(process.argv.includes('--live')){const r=await client.callTool({name:'ecoagent_local_read',arguments:{url:'https://example.org/'}},undefined,{timeout:45000});assert.equal(r.isError??false,false);const p=JSON.parse(r.content[0].text);assert.equal(new URL(p.url).origin,'https://example.org');assert.ok(p.title&&p.text.length>40);console.log('DESKTOP LIVE READ OK: '+p.title)}

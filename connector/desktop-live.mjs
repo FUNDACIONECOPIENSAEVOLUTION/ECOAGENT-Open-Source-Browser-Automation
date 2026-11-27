@@ -33,7 +33,19 @@ export function createLive(root,{ttl=300000}={}){
   }finally{for(const h of nodes)if(![...s.refs.values()].some(r=>r.handle===h))await h.dispose().catch(()=>{})}
   return {session:s.id,snapshot:s.snapshot,demo:s.demo,draftMode:s.draftMode,tab:s.tabs.indexOf(s.page)+1,url:s.page.url(),title:await s.page.title(),status:s.status,outcome:pageOutcome(s.status),text:(await s.page.locator('body').innerText({timeout:5000})).slice(0,5000),elements:fields};
  }
- async function navigate(s,url){const r=await s.page.goto(url,{waitUntil:'domcontentloaded',timeout:20000});s.status=r?.status()??null;s.statuses ||= new Map();s.statuses.set(s.page,s.status);return inspect(s)}
+ async function recordNavigation(s,r){s.status=r?.status()??null;s.statuses ||= new Map();s.statuses.set(s.page,s.status);return inspect(s)}
+ async function navigate(s,url){const r=await s.page.goto(url,{waitUntil:'domcontentloaded',timeout:20000});return recordNavigation(s,r)}
+ async function navigationGuard(s,discard){
+  if(!(s.demo||s.draftMode))return null;
+  const changed=await s.page.locator('input,textarea,select').evaluateAll(nodes=>nodes.filter(e=>{
+   if(e.type==='file')return e.files.length>0;
+   if(['checkbox','radio'].includes(e.type))return e.checked!==e.defaultChecked;
+   if(e.tagName==='SELECT')return Array.from(e.options).some(o=>o.selected!==o.defaultSelected)&&!(e.selectedIndex===0&&!Array.from(e.options).some(o=>o.defaultSelected));
+   return e.value!==e.defaultValue&&typeof e.defaultValue==='string';
+  }).length);
+  if(changed&&!discard)return {blocked:true,reason:'unsaved_draft',changedFields:changed,session:s.id,snapshot:s.snapshot,submitted:false};
+  return null;
+ }
  async function run(id,fn){const s=lookup(id);s.active=true;try{return await fn(s)}catch(e){await close();throw e}finally{s.active=false;if(session===s)arm(s)}}
  return {
  async open(url,demo=false,draftMode=false){
@@ -55,6 +67,19 @@ export function createLive(root,{ttl=300000}={}){
   }catch(e){await close();throw e}finally{s.active=false;if(session===s)arm(s)}
  },
  inspect:id=>run(id,inspect),
+ reload:(id,discard=false)=>run(id,async s=>{
+  const blocked=await navigationGuard(s,discard);if(blocked)return blocked;
+  const u=readURL(s.page.url());if(u.origin!==s.origin)throw Error('Origin changed');
+  const r=await s.page.reload({waitUntil:'domcontentloaded',timeout:20000});return {...await recordNavigation(s,r),reloaded:true,submitted:false};
+ }),
+ history:(id,direction,discard=false)=>run(id,async s=>{
+  const blocked=await navigationGuard(s,discard);if(blocked)return blocked;
+  if(!['back','forward'].includes(direction))throw Error('Invalid history direction');
+  const r=await (direction==='back'?s.page.goBack({waitUntil:'domcontentloaded',timeout:20000}):s.page.goForward({waitUntil:'domcontentloaded',timeout:20000}));
+  const u=readURL(s.page.url());if(u.origin!==s.origin)throw Error('Origin changed');
+  if(!r)return {...await inspect(s),history:direction,navigationConfirmed:false,submitted:false};
+  return {...await recordNavigation(s,r),history:direction,navigationConfirmed:true,submitted:false};
+ }),
  follow:(id,ref,element)=>run(id,async s=>{const r=findRef(ref,s.snapshot,s.refs,element);if(!r.href||s.status!==200)throw Error('Only approved links');return navigate(s,r.href)}),
  fill:(id,ref,element,value)=>run(id,async s=>{if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Draft mode required');const r=findRef(ref,s.snapshot,s.refs,element);validateDraft(r.info,value);if(!await r.handle.evaluate(e=>e.isConnected&&!e.disabled&&!e.readOnly))throw Error('Field changed');if(r.info.tag==='select')await r.handle.selectOption({label:value},{timeout:5000});else await r.handle.fill(value,{timeout:5000});return inspect(s)}),
  tabs:(id)=>run(id,async s=>({session:s.id,tabs:await Promise.all(s.tabs.map(async(p,i)=>({tab:i+1,active:p===s.page,url:p.url(),title:await p.title()})))})),
@@ -68,7 +93,7 @@ export function createLive(root,{ttl=300000}={}){
   if(!s.demo)throw Error('Button click restricted to offline demo');
   const r=findRef(ref,s.snapshot,s.refs,element);
   if(r.info.tag!=='a'||!r.href)throw Error('Only offline navigation link clicks; submit disabled');
-  await Promise.all([s.page.waitForURL(r.href,{timeout:5000}),r.handle.click({timeout:5000})]);s.status=200;return inspect(s);
+  await Promise.all([s.page.waitForURL(r.href,{timeout:5000}),r.handle.click({timeout:5000})]);s.status=200;s.statuses.set(s.page,200);return inspect(s);
  }),
  toggle:(id,ref,element,checked)=>run(id,async s=>{
   if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Static draft mode required');

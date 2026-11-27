@@ -9,10 +9,10 @@ import {discover,validateDiscovery} from './desktop-discovery.mjs';
 import {createSessions} from './desktop-sessions.mjs';
 import {createLive} from './desktop-live.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.28.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.29.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.28.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.29.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -104,4 +104,6 @@ server.tool('ecoagent_attach_document','Select a locally approved document in th
  approvals.consume(args.approval,{session:args.session,action:'document-attach',digest:p.digest});
  const d=vault.get(args.document);try{return await live.attachDocument(args.session,args.snapshot,args.element,d)}finally{d.buffer.fill(0)}
 }));
+server.tool('ecoagent_reload','Reload the active browser tab. Blocks if unsaved draft fields or attachments exist unless the user explicitly agrees to discard them. Never submit a form.',{session:sessionId,discard:z.boolean().default(false)},{readOnlyHint:false,destructiveHint:true,openWorldHint:true},async({session,discard})=>exclusive(()=>live.reload(session,discard)));
+server.tool('ecoagent_history','Navigate back or forward in the active browser tab. Blocks unsaved draft changes unless the user explicitly agrees to discard them.',{session:sessionId,direction:z.enum(['back','forward']),discard:z.boolean().default(false)},{readOnlyHint:false,destructiveHint:true,openWorldHint:true},async({session,direction,discard})=>exclusive(()=>live.history(session,direction,discard)));
 await server.connect(new StdioServerTransport());
