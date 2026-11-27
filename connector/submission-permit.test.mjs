@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {createPostPermit} from './submission-permit.mjs';
+test('one exact main-frame POST only',()=>{const url='https://example.org/submit',p=createPostPermit(url);assert.equal(p.consume({url:url+'/other',method:'POST',main:true}),false);assert.equal(p.consume({url,method:'POST',main:false}),false);assert.equal(p.consume({url,method:'GET',main:true}),false);assert.equal(p.consume({url,method:'POST',main:true}),true);assert.equal(p.consume({url,method:'POST',main:true}),false);assert.equal(p.used(),true)});

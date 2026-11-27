@@ -1,0 +1,1 @@
+export function createPostPermit(endpoint){let consumed=false;return {consume({url,method,main}){if(consumed||url!==endpoint||method!=='POST'||main!==true)return false;consumed=true;return true},used:()=>consumed}}

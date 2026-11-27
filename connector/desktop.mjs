@@ -10,12 +10,12 @@ import {createSessions} from './desktop-sessions.mjs';
 import {createLive} from './desktop-live.mjs';
 import {createLivePool} from './live-pool.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.39.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.40.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.39.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.40.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -140,6 +140,20 @@ server.tool('ecoagent_attach_documents','Select approved exact files in a draft 
  const p=await batchAttachmentPlan(args);
  approvals.consume(args.approval,{session:args.session,action:'document-attach',digest:p.digest});
  const docs=[];try{for(const id of args.documents)docs.push(vault.get(id));return await live.attachDocuments(args.session,args.snapshot,args.element,docs)}finally{for(const d of docs)d.buffer.fill(0)}
+}));
+server.tool('ecoagent_prepare_submission','Prepare exact static POST form for one local approval; no submission. Only authorized institutional applications.',liveRef,{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async(args)=>exclusive(async()=>{
+ await ensureLocalUI();const plan=await live.submissionPlan(args.session,args.snapshot,args.element);
+ const digest=createHash('sha256').update(JSON.stringify(plan)).digest('hex');
+ const description='Submit '+plan.url+' to '+plan.action+' ('+plan.fieldCount+' fields)'+(plan.demo?' OFFLINE TEST ONLY':'');
+ if(description.length>300)throw Error('Target too long');
+ const a=approvals.request({session:args.session,action:'form-submit',description,digest});
+ return {approval:a.id,state:a.state,expires:a.expires,target:plan.action,demo:plan.demo};
+}));
+server.tool('ecoagent_submit_form','Execute one locally approved exact static POST form. Never retry automatically; response does not confirm application.',{...liveRef,approval:sessionId},{readOnlyHint:false,destructiveHint:true,openWorldHint:true},async(args)=>exclusive(async()=>{
+ const plan=await live.submissionPlan(args.session,args.snapshot,args.element);
+ const digest=createHash('sha256').update(JSON.stringify(plan)).digest('hex');
+ approvals.consume(args.approval,{session:args.session,action:'form-submit',digest});
+ return live.submitForm(args.session,args.snapshot,args.element,plan);
 }));
 server.tool('ecoagent_reload','Reload the active browser tab. Blocks if unsaved draft fields or attachments exist unless the user explicitly agrees to discard them. Never submit a form.',{session:sessionId,discard:z.boolean().default(false)},{readOnlyHint:false,destructiveHint:true,openWorldHint:true},async({session,discard})=>exclusive(()=>live.reload(session,discard)));
 server.tool('ecoagent_history','Navigate back or forward in the active browser tab. Blocks unsaved draft changes unless the user explicitly agrees to discard them.',{session:sessionId,direction:z.enum(['back','forward']),discard:z.boolean().default(false)},{readOnlyHint:false,destructiveHint:true,openWorldHint:true},async({session,direction,discard})=>exclusive(()=>live.history(session,direction,discard)));
