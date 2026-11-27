@@ -11,12 +11,12 @@ import {createLive} from './desktop-live.mjs';
 import {createLivePool} from './live-pool.mjs';
 import {createSubmissionLedger} from './submission-ledger.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.42.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.43.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.42.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.43.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -158,6 +158,7 @@ server.tool('ecoagent_submit_form','Execute one locally approved exact static PO
  return live.submitForm(args.session,args.snapshot,args.element,plan);
 }));
 server.tool('ecoagent_submission_evidence','Read bounded current response evidence after a submission attempt. HTTP success alone is not confirmation.',{session:sessionId},{readOnlyHint:true,openWorldHint:false},async({session})=>exclusive(()=>live.submissionEvidence(session)));
+server.tool('ecoagent_receipt_download','Retrieve an exact same-origin document link on the current submission response; save bounded original bytes locally. Does not confirm an application.',liveRef,{readOnlyHint:false,destructiveHint:false,openWorldHint:true},async({session,snapshot,element})=>exclusive(()=>live.receiptDownload(session,snapshot,element)));
 server.tool('ecoagent_submission_history','List persistent and current submission attempts without form values. Does not establish application confirmation.',{},{readOnlyHint:true,openWorldHint:false},async()=>exclusive(async()=>submissionLedger.list()));
 server.tool('ecoagent_reload','Reload the active browser tab. Blocks if unsaved draft fields or attachments exist unless the user explicitly agrees to discard them. Never submit a form.',{session:sessionId,discard:z.boolean().default(false)},{readOnlyHint:false,destructiveHint:true,openWorldHint:true},async({session,discard})=>exclusive(()=>live.reload(session,discard)));
 server.tool('ecoagent_history','Navigate back or forward in the active browser tab. Blocks unsaved draft changes unless the user explicitly agrees to discard them.',{session:sessionId,direction:z.enum(['back','forward']),discard:z.boolean().default(false)},{readOnlyHint:false,destructiveHint:true,openWorldHint:true},async({session,direction,discard})=>exclusive(()=>live.history(session,direction,discard)));

@@ -5,6 +5,8 @@ import {sensitiveField} from '../privacy.mjs';
 import {createHash} from 'node:crypto';
 import {createPostPermit} from './submission-permit.mjs';
 import {createSubmissionLedger} from './submission-ledger.mjs';
+import {storeReceipt} from './receipt-store.mjs';
+import {join} from 'node:path';
 const fixture='https://example.org/ecoagent-local-fixture';
 const fixtureNext=fixture+'/next';
 const fixtureDownload=fixture+'/document.txt';
@@ -94,7 +96,7 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
    await c.route('**/*',async r=>{
     const req=r.request();
     if(s.postPermit?.consume({url:req.url(),method:req.method(),main:req.isNavigationRequest()&&req.frame()===s.page.mainFrame()})){
-     if(demo){s.postStatus=200;return r.fulfill({status:200,contentType:'text/html',body:'<html><title>Synthetic receipt</title><body>OFFLINE TEST ONLY</body></html>'})}
+     if(demo){s.postStatus=200;return r.fulfill({status:200,contentType:'text/html',body:'<html><title>Synthetic receipt</title><body>OFFLINE TEST ONLY <a href="'+fixtureDownload+'">Download synthetic receipt</a></body></html>'})}
      try{const res=await r.fetch({maxRedirects:0,maxRetries:0,timeout:15000});try{s.postStatus=res.status();if(res.status()>=300&&res.status()<400)return r.fulfill({status:409,contentType:'text/plain',body:'Submission response redirect requires manual review'});return await r.fulfill({response:res})}finally{await res.dispose()}}catch{await r.abort().catch(()=>{});return}
     }
     if(demo){if(r.request().url()===fixtureDownload&&r.request().method()==='GET')return r.fulfill({status:200,headers:{'content-type':'text/plain','content-disposition':'attachment; filename="ecoagent-demo.txt"'},body:sampleDocument});if([fixture,fixtureNext].includes(r.request().url())&&r.request().method()==='GET')return r.fulfill({status:200,contentType:'text/html',body:r.request().url()===fixture?(s.dynamicDemo?dynamicHTML:html):'<html><title>Second page</title><body>Offline navigation successful</body></html>'});return r.abort()}
@@ -262,6 +264,26 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
   const title=(await s.page.title()).slice(0,300);
   const body=(await s.page.locator('body').innerText({timeout:5000})).slice(0,12000);
   return {...entry,evidenceAvailable:true,title,text:body,evidenceSHA256:createHash('sha256').update(JSON.stringify([url.href,title,body])).digest('hex'),confirmed:false,submitted:false};
+ }),
+ receiptDownload:(id,ref,element)=>run(id,async s=>{
+  await assertSafePage(s);
+  const entry=s.lastSubmission;
+  if(!entry?.attempted||entry.httpStatus<200||entry.httpStatus>=300||s.page.url()!==entry.endpoint)throw new StaleReferenceError('Current response required');
+  const r=findRef(ref,s.snapshot,s.refs,element);
+  if(r.info.tag!=='a'||!await r.handle.isVisible())throw new StaleReferenceError('Visible receipt link required');
+  const href=await r.handle.evaluate(e=>e.href);
+  const u=readURL(href);
+  if(u.origin!==s.origin||s.demo&&u.href!==fixtureDownload)throw new StaleReferenceError('Receipt origin not approved');
+  if(s.demo)return storeReceipt({entry,url:u.href,bytes:sampleDocument,mime:'text/plain',demo:true});
+  const response=await s.context.request.get(u.href,{maxRedirects:0,maxRetries:0,timeout:10000});
+  try{
+   if(response.status()!==200)throw new StaleReferenceError('Receipt unavailable');
+   const headers=response.headers(),length=Number(headers['content-length']);
+   if(!Number.isSafeInteger(length)||length<1||length>10*1024*1024||headers['content-encoding'])throw new StaleReferenceError('Receipt requires bounded uncompressed response');
+   const bytes=await response.body();
+   if(bytes.length!==length)throw new StaleReferenceError('Receipt length mismatch');
+   return storeReceipt({entry,url:u.href,bytes,mime:headers['content-type'],directory:join(root,'local-config','receipts')});
+  }finally{await response.dispose()}
  }),
  attachDemo:(id)=>run(id,async s=>{
   if(!s.demo||s.page.url()!==fixture)throw Error('Offline demo form required');
