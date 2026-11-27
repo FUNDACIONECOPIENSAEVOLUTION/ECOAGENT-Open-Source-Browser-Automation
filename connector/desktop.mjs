@@ -9,12 +9,12 @@ import {discover,validateDiscovery} from './desktop-discovery.mjs';
 import {createSessions} from './desktop-sessions.mjs';
 import {createLive} from './desktop-live.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.32.1'});
+const server=new McpServer({name:'ecoagent-local',version:'0.33.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.32.1',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.33.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -73,6 +73,9 @@ const {createApprovals,actionDigest}=await import('./approval-policy.mjs');
 const approvals=createApprovals();
 const {createDocumentVault}=await import('./document-vault.mjs');
 const vault=createDocumentVault();
+const {createFileTransfer}=await import('./file-transfer.mjs');
+const transfer=createFileTransfer(vault);
+server.tool('ecoagent_file_transfer','Receive exact bytes of a file already created by ChatGPT, in bounded base64 chunks; no local paths, URLs, generation, or external upload. Begin with name, size and SHA256; append sequential chunks; finish to obtain a vault document ID.',{action:z.enum(['begin','append','finish','cancel']),transfer:z.string().uuid().optional(),name:z.string().max(180).optional(),size:z.number().int().positive().max(25*1024*1024).optional(),sha256:z.string().regex(/^[a-f0-9]{64}$/).optional(),offset:z.number().int().nonnegative().optional(),data:z.string().max(87384).optional()},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async(args)=>exclusive(async()=>transfer.execute(args)));
 let approvalUI;
 async function ensureLocalUI(){if(process.env.ECOAGENT_ENABLE_APPROVAL_UI!=='1')throw Error('Local UI disabled');if(!approvalUI){const {startApprovalUI}=await import('./approval-ui.mjs');approvalUI=await startApprovalUI(approvals,{vault,manual});console.error('ECOAGENT local UI: '+approvalUI.url)}return approvalUI}
 server.tool('ecoagent_request_demo_approval','Request local human approval for a synthetic document action. Does not authorize or execute the action.',{session:sessionId,action:z.enum(['demo-attach','demo-download'])},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session,action})=>exclusive(async()=>{
@@ -87,7 +90,7 @@ server.tool('ecoagent_approved_demo_action','Execute a single locally approved s
  return action==='demo-attach'?live.attachDemo(session):live.downloadDemo(session);
 }));
 server.tool('ecoagent_prepare_documents','Start opt-in local document selection interface. Only the human selects files; no remote path or file contents accepted.',{},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async()=>exclusive(async()=>{await ensureLocalUI();return {ready:true,instruction:'Open local UI URL printed in runtime diagnostics. Select files locally; no external upload.'}}));
-server.tool('ecoagent_document_inventory','List metadata for files explicitly selected in the local UI. Does not return contents or local paths.',{},{readOnlyHint:true,openWorldHint:false},async()=>exclusive(async()=>({documents:vault.list()})));
+server.tool('ecoagent_document_inventory','List metadata for files selected locally or received through verified file transfer. Does not return contents or local paths.',{},{readOnlyHint:true,openWorldHint:false},async()=>exclusive(async()=>({documents:vault.list()})));
 const {createHash}=await import('node:crypto');
 const attachmentArgs={...liveRef,document:sessionId};
 async function attachmentPlan({session,snapshot,element,document}){
@@ -96,7 +99,7 @@ async function attachmentPlan({session,snapshot,element,document}){
  const digest=createHash('sha256').update(JSON.stringify([target,meta.id,meta.sha256])).digest('hex');
  return {target,meta,digest};
 }
-server.tool('ecoagent_request_attachment','Request local human approval to select a locally provided document in an exact static draft file input. No network submission.',attachmentArgs,{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async(args)=>exclusive(async()=>{
+server.tool('ecoagent_request_attachment','Request local human approval to select a vault document in an exact static draft file input. No network submission.',attachmentArgs,{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async(args)=>exclusive(async()=>{
  await ensureLocalUI();const p=await attachmentPlan(args);
  const description=('Attach '+p.meta.name+' ('+p.meta.size+' bytes) to '+p.target.label+' at '+p.target.url).slice(0,300);
  const a=approvals.request({session:args.session,action:'document-attach',description,digest:p.digest});

@@ -1,0 +1,3 @@
+# ECOAGENT 0.33.0 — transport, not generation
+
+ChatGPT creates documents and images; ECOAGENT receives exact bytes via ordered base64 chunks with declared size and SHA-256. No remote paths, arbitrary URL fetch, or document generation. Existing vault and local exact attachment approval remain. Supports PDF, DOCX, XLSX, PPTX, TXT, CSV, PNG, JPEG, WEBP; 25 MiB per file and bounded temporary transfers. Actual ChatGPT artifact byte bridge needs host integration testing: the MCP tool accepts chunks but cannot itself access ChatGPT sandbox files. External upload and submission remain disabled. CI and Windows acceptance pending.

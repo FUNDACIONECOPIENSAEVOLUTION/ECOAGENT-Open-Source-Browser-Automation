@@ -1,7 +1,7 @@
 import {randomUUID,createHash} from 'node:crypto';
 import {basename,extname} from 'node:path';
 export const maxDocumentBytes=25*1024*1024;
-const types={'.pdf':'application/pdf','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','.pptx':'application/vnd.openxmlformats-officedocument.presentationml.presentation','.txt':'text/plain','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg'};
+const types={'.pdf':'application/pdf','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','.pptx':'application/vnd.openxmlformats-officedocument.presentationml.presentation','.txt':'text/plain','.csv':'text/csv','.webp':'image/webp','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg'};
 export function createDocumentVault({clock=Date.now,ttl=900000,limit=4,maxTotal=50*1024*1024}={}){
  const docs=new Map();
  function expire(){for(const [id,d] of docs)if(clock()>=d.expires){d.buffer.fill(0);docs.delete(id)}}
