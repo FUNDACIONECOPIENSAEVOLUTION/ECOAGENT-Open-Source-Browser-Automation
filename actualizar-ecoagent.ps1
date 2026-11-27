@@ -19,8 +19,14 @@ function GitBlobHash([string]$Path){
  $hash=[Security.Cryptography.SHA1]::Create()
  try{$hash.TransformBlock($prefix,0,$prefix.Length,$prefix,0)|Out-Null;$hash.TransformFinalBlock($bytes,0,$bytes.Length)|Out-Null;return ([BitConverter]::ToString($hash.Hash)).Replace('-','').ToLowerInvariant()}finally{$hash.Dispose()}
 }
+# Do not overwrite a running MCP server, even if it has no listening port.
+$running=Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object {$_.CommandLine -match '(?i)ECOAGENT[\\/]connector[\\/]desktop\.mjs'}
+if($running){throw 'Stop ECOAGENT MCP processes before updating'}
 $stage=Join-Path $roots[0] ('.update-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $stage|Out-Null
+$backup=Join-Path $roots[0] ('.source-backup-'+[guid]::NewGuid().ToString('N'))
+$journal=New-Object 'System.Collections.Generic.List[object]'
+$started=$false
 try{
  foreach($entry in $entries){
   $p=Join-Path $stage $entry.path
@@ -30,6 +36,25 @@ try{
   else{Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/$repo/$Commit/$($entry.path)" -OutFile $p}
   if((GitBlobHash $p) -ne $entry.sha){throw "Hash incorrecto: $($entry.path)"}
  }
+ # Stage all previous files before changing either drive.
+ New-Item -ItemType Directory -Path $backup|Out-Null
+ foreach($root in $roots){
+  foreach($entry in $entries){
+   $dest=Join-Path $root $entry.path
+   $saved=Join-Path (Join-Path $backup $root.Substring(0,1)) $entry.path
+   $existed=Test-Path -LiteralPath $dest -PathType Leaf
+   $hash=$null
+   if($existed){
+    New-Item -ItemType Directory -Force -Path (Split-Path $saved -Parent)|Out-Null
+    Copy-Item -LiteralPath $dest -Destination $saved
+    $hash=GitBlobHash $dest
+    if((GitBlobHash $saved) -ne $hash){throw 'Backup hash mismatch'}
+   }
+   $journal.Add([pscustomobject]@{dest=$dest;saved=$saved;existed=$existed;hash=$hash})
+  }
+ }
+ $journal|ConvertTo-Json -Depth 4|Set-Content -LiteralPath (Join-Path $backup 'journal.json') -Encoding UTF8
+ $started=$true
  foreach($root in $roots){
   foreach($entry in $entries){
    $dest=Join-Path $root $entry.path
@@ -39,5 +64,21 @@ try{
   }
   Write-Host "CODIGO VERIFICADO: $root" -ForegroundColor Green
  }
+}catch{
+ $failure=$_.Exception.Message
+ if($started){
+  $errors=@()
+  foreach($j in $journal){
+   try{
+    if($j.existed){
+     Copy-Item -LiteralPath $j.saved -Destination $j.dest -Force
+     if((GitBlobHash $j.dest) -ne $j.hash){throw 'Restore hash mismatch'}
+    }elseif(Test-Path -LiteralPath $j.dest -PathType Leaf){Remove-Item -LiteralPath $j.dest -Force}
+   }catch{$errors+= $_.Exception.Message}
+  }
+  if($errors.Count){throw "Update failed: $failure. Restore incomplete. Backup: $backup"}
+ }
+ throw "Update failed: $failure. Source backup retained: $backup"
 }finally{Remove-Item -LiteralPath $stage -Recurse -Force}
+Write-Host "RESPALDO CONSERVADO: $backup"
 Write-Host "REVISION $Commit SINCRONIZADA. No se modificaron dependencias, perfiles ni claves." -ForegroundColor Green

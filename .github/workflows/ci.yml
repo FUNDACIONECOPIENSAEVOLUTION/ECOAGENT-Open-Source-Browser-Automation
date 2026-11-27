@@ -4,7 +4,7 @@ permissions:
   contents: read
 jobs:
   protocol:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,4 +34,4 @@ jobs:
         run: |
           npm install --ignore-scripts
           npx playwright install --with-deps chromium
-          PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" node connector/desktop.integration.mjs --fixture
+          ECOAGENT_TEST_DIAGNOSTICS=1 PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" node connector/desktop.integration.mjs --fixture
