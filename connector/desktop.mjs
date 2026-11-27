@@ -10,12 +10,12 @@ import {createSessions} from './desktop-sessions.mjs';
 import {createLive} from './desktop-live.mjs';
 import {createLivePool} from './live-pool.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.37.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.38.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.37.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.38.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -128,7 +128,7 @@ const manual={
   if(busy)throw Error('Browser busy');busy=true;
   try{
    if(action==='take')return control.take();
-   if(action==='release'){const id=control.assertHuman();await live.inspect(id);return control.release()}
+   if(action==='release'){const id=control.assertHuman();const state=await live.inspect(id);if(state.manualRequired)return {blocked:true,reason:state.reason,...control.status()};return {...control.release(),resumed:true,session:id,snapshot:state.snapshot}}
    const id=control.assertHuman();
    if(action==='inspect')return live.inspect(id);
    if(action==='preview')return live.preview(id);
@@ -144,7 +144,7 @@ const manual={
  }
 };
 server.tool('ecoagent_request_manual','Request human takeover of current demo/static draft browser. Only local UI can accept and release.',{session:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session})=>exclusive(async()=>{
- await ensureLocalUI();const s=await live.inspect(session);if(!(s.demo||s.draftMode))throw Error('Draft mode required');return control.request(session);
+ await ensureLocalUI();const s=await live.inspect(session);if(!(s.demo||s.draftMode||s.manualRequired))throw Error('Draft or authentication handoff required');return control.request(session);
 }));
 server.tool('ecoagent_control_status','Read current AI/human control mode.',{},{readOnlyHint:true,openWorldHint:false},async()=>result({...control.status(),browser:live.current()}));
 await server.connect(new StdioServerTransport());

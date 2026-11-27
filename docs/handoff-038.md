@@ -1,0 +1,3 @@
+# ECOAGENT v0.38.0 — authentication handoff preservation
+
+Authentication-required screens now return a structured blocked result instead of destroying the browser. Existing element references are invalidated; no authentication screen text or field values are returned. A bounded 15-minute idle window allows local intervention. Release requires a fresh inspection and refuses to resume if the authentication screen remains. Existing network restrictions are unchanged: this is session preservation, not full login support. Real login POSTs, cross-origin identity providers and CAPTCHA handling remain unimplemented. Windows visible-browser acceptance and real portal tests remain pending. See ACCEPTANCE-ECOAGENT.md.
