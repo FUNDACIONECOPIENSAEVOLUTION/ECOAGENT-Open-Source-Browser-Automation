@@ -27,18 +27,18 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
  async function inspect(s){
   await assertSafePage(s);
   for(const r of s.refs.values())await r.handle.dispose().catch(()=>{});s.refs.clear();s.snapshot=randomUUID();
-  const fields=[];const nodes=await s.page.locator('input,textarea,select,button,a[href]').elementHandles();
+  const fields=[];const nodes=await s.page.locator('input,textarea,select,button,a[href],img[alt],[role=button],[role=menuitem]').elementHandles();
   try{
    for(const handle of nodes.slice(0,150)){
     if(fields.length>=60||!await handle.isVisible().catch(()=>false))continue;
-    const info=await handle.evaluate(e=>({tag:e.tagName.toLowerCase(),type:e.type||'',name:e.name||'',label:e.getAttribute('aria-label')||Array.from(e.labels||[]).map(l=>{const copy=l.cloneNode(true);copy.querySelectorAll('input,textarea,select,button').forEach(n=>n.remove());return copy.textContent||''}).join(' ')||e.getAttribute('placeholder')||((e.tagName==='BUTTON'||e.tagName==='A')?e.innerText:'')||'',autocomplete:e.autocomplete||'',required:!!e.required,disabled:!!e.disabled,readOnly:!!e.readOnly,href:e.tagName==='A'?e.href:''})).catch(()=>null);
+    const info=await handle.evaluate(e=>({tag:e.tagName.toLowerCase(),type:e.type||'',name:e.name||'',label:e.getAttribute('aria-label')||Array.from(e.labels||[]).map(l=>{const copy=l.cloneNode(true);copy.querySelectorAll('input,textarea,select,button').forEach(n=>n.remove());return copy.textContent||''}).join(' ')||e.getAttribute('placeholder')||e.getAttribute('alt')||((e.tagName==='BUTTON'||e.tagName==='A'||e.hasAttribute('role'))?e.innerText:'')||'',autocomplete:e.autocomplete||'',required:!!e.required,disabled:!!e.disabled,readOnly:!!e.readOnly,href:e.tagName==='A'?e.href:''})).catch(()=>null);
     if(!info)continue;
     const attachment=(s.demo||s.draftMode)&&s.status===200&&info.tag==='input'&&info.type==='file'&&!info.disabled;
     if(!attachment&&sensitiveField(info))continue;
     const id=randomUUID();let href=null;if(info.href)try{const u=readURL(info.href);if(u.origin===s.origin&&(!s.demo||u.href===fixtureNext||u.href===fixture))href=u.href}catch{}
     const draft=(s.demo||s.draftMode)&&canDraft(info)&&s.status===200;
     const toggle=(s.demo||s.draftMode)&&s.status===200&&info.tag==='input'&&['checkbox','radio'].includes(info.type)&&!info.disabled&&!info.readOnly;
-    s.refs.set(id,{handle,info,href});fields.push({id,tag:info.tag,type:info.type,label:String(info.label).replace(/\s+/g,' ').trim().slice(0,160),required:info.required,draft,toggle,attachment,follow:!!href,click:!!(s.dynamicDemo&&s.page.url()===fixture&&info.tag==='button'&&info.type==='button'&&!info.disabled&&await handle.evaluate(e=>['expand','nextStage','previousStage'].includes(e.id)))});
+    s.refs.set(id,{handle,info,href});fields.push({id,tag:info.tag,type:info.type,label:String(info.label).replace(/\s+/g,' ').trim().slice(0,160),required:info.required,draft,toggle,attachment,follow:!!href,inViewport:await handle.evaluate(e=>{const r=e.getBoundingClientRect();return r.bottom>0&&r.right>0&&r.top<innerHeight&&r.left<innerWidth}),click:!!(s.dynamicDemo&&s.page.url()===fixture&&info.tag==='button'&&info.type==='button'&&!info.disabled&&await handle.evaluate(e=>['expand','nextStage','previousStage'].includes(e.id)))});
    }
   }finally{for(const h of nodes)if(![...s.refs.values()].some(r=>r.handle===h))await h.dispose().catch(()=>{})}
   return {session:s.id,snapshot:s.snapshot,demo:s.demo,draftMode:s.draftMode,tab:s.tabs.indexOf(s.page)+1,url:s.page.url(),title:await s.page.title(),status:s.status,outcome:pageOutcome(s.status),text:(await s.page.locator('body').innerText({timeout:5000})).slice(0,5000),elements:fields};
@@ -78,6 +78,27 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
  },
  current:()=>session?{session:session.id,tab:session.tabs.indexOf(session.page)+1,demo:session.demo,draftMode:session.draftMode,visible}:null,
  inspect:id=>run(id,inspect),
+ scroll:(id,direction,amount)=>run(id,async s=>{
+  await assertSafePage(s);
+  if(s.status!==200)return {blocked:true,reason:'page_unavailable',session:s.id};
+  if(!['up','down','top','bottom'].includes(direction)||!Number.isInteger(amount)||amount<100||amount>2000)throw new StaleReferenceError('Invalid scroll');
+  const position=await s.page.evaluate(({direction,amount})=>{
+   const root=document.scrollingElement||document.documentElement;
+   const before=root.scrollTop;
+   const target=direction==='top'?0:direction==='bottom'?root.scrollHeight:before+(direction==='up'?-amount:amount);
+   root.scrollTop=target;
+   return {before,y:root.scrollTop,height:root.scrollHeight,viewport:root.clientHeight};
+  },{direction,amount});
+  return {...await inspect(s),position,submitted:false};
+ }),
+ clickLink:(id,ref,element)=>run(id,async s=>{
+  await assertSafePage(s);
+  const r=findRef(ref,s.snapshot,s.refs,element);
+  if(s.status!==200||r.info.tag!=='a'||!r.href)throw new StaleReferenceError('Only inspected approved navigation links');
+  const blocked=await navigationGuard(s,false);if(blocked)return blocked;
+  if(!await r.handle.evaluate((e,url)=>e.isConnected&&e.tagName==='A'&&e.href===url&&!e.hasAttribute('download'),r.href))throw new StaleReferenceError('Link changed');
+  return {...await navigate(s,r.href),submitted:false};
+ }),
  reload:(id,discard=false)=>run(id,async s=>{
   const blocked=await navigationGuard(s,discard);if(blocked)return blocked;
   const u=readURL(s.page.url());if(u.origin!==s.origin)throw Error('Origin changed');
@@ -174,9 +195,9 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
   }finally{await d.delete().catch(()=>{});await s.page.locator('#ecoagent-demo-download').first().evaluate(e=>e.remove()).catch(()=>{})}
  }),
  preview:(id)=>run(id,async s=>{
-  if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Static draft mode required');
+  if(s.status!==200)throw new StaleReferenceError('Page unavailable');
   await assertSafePage(s);
-  const bytes=await s.page.screenshot({type:'jpeg',quality:50,timeout:5000,mask:[s.page.locator('input,textarea,select,[contenteditable],iframe')],maskColor:'#777777'});
+  const bytes=await s.page.screenshot({type:'jpeg',quality:50,timeout:5000,mask:[s.page.locator('input,textarea,select,[contenteditable],iframe,[role=textbox]')],maskColor:'#777777'});
   if(bytes.length>512000)throw Error('Preview too large');
   return {data:bytes.toString('base64'),mimeType:'image/jpeg',sha256:createHash('sha256').update(bytes).digest('hex')};
  }),
