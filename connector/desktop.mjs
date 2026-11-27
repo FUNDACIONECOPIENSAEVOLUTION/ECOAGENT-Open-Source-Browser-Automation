@@ -9,12 +9,12 @@ import {discover,validateDiscovery} from './desktop-discovery.mjs';
 import {createSessions} from './desktop-sessions.mjs';
 import {createLive} from './desktop-live.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.32.1'});
+const server=new McpServer({name:'ecoagent-local',version:'0.33.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.32.1',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.33.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -73,6 +73,8 @@ const {createApprovals,actionDigest}=await import('./approval-policy.mjs');
 const approvals=createApprovals();
 const {createDocumentVault}=await import('./document-vault.mjs');
 const vault=createDocumentVault();
+const {generateDocument}=await import('./document-generator.mjs');
+server.tool('ecoagent_generate_document','Generate a bounded PDF, DOCX or XLSX from supplied plain text or tabular rows in the temporary document vault. No external upload, file paths, macros, signatures or execution.',{name:z.string().max(120),format:z.enum(['pdf','docx','xlsx']),title:z.string().max(160),paragraphs:z.array(z.string().max(4000)).max(40).optional(),rows:z.array(z.array(z.string().max(500)).max(20)).max(200).optional()},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async(args)=>exclusive(async()=>{const d=generateDocument(args);try{return {document:vault.add(d.name,d.buffer),generated:true,submitted:false}}finally{d.buffer.fill(0)}}));
 let approvalUI;
 async function ensureLocalUI(){if(process.env.ECOAGENT_ENABLE_APPROVAL_UI!=='1')throw Error('Local UI disabled');if(!approvalUI){const {startApprovalUI}=await import('./approval-ui.mjs');approvalUI=await startApprovalUI(approvals,{vault,manual});console.error('ECOAGENT local UI: '+approvalUI.url)}return approvalUI}
 server.tool('ecoagent_request_demo_approval','Request local human approval for a synthetic document action. Does not authorize or execute the action.',{session:sessionId,action:z.enum(['demo-attach','demo-download'])},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session,action})=>exclusive(async()=>{
