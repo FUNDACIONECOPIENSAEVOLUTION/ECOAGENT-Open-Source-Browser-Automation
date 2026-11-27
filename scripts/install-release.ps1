@@ -1,6 +1,8 @@
 param(
  [Parameter(Mandatory=$true)][ValidatePattern('^[a-f0-9]{40}$')][string]$Commit,
- [switch]$ConfirmIdle
+ [switch]$ConfirmIdle,
+ [switch]$EnableVisibleBrowser,
+ [switch]$EnableApprovalUI
 )
 $ErrorActionPreference='Stop'
 if(!$ConfirmIdle){throw 'Confirm idle maintenance using -ConfirmIdle'}
@@ -16,6 +18,8 @@ $state=Join-Path $root 'local-config'
 New-Item -ItemType Directory -Force $state|Out-Null
 $lock=[IO.File]::Open((Join-Path $state 'maintenance.lock'),[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
 $priorKey=[Environment]::GetEnvironmentVariable('CONTROL_PLANE_API_KEY','Process')
+$priorVisible=$env:ECOAGENT_VISIBLE_BROWSER
+$priorUI=$env:ECOAGENT_ENABLE_APPROVAL_UI
 $stopped=$false;$modified=$false;$newStarted=$false
 $journal=@()
 $work=Join-Path $root ('.maintenance-'+[guid]::NewGuid().ToString('N'))
@@ -27,7 +31,7 @@ function Blob([string]$p){
 }
 function Ready {
  $s=(& $tunnel runtimes status ecoagent|Out-String)
- return ($LASTEXITCODE -eq 0 -and $s -match '\bready\b')
+ return ($LASTEXITCODE -eq 0 -and $s -match '\bready\b' -and $s -notmatch '(?i)\bnot\s+ready\b')
 }
 function Start-Ecoagent {
  & $tunnel runtimes connect --alias ecoagent --tunnel-id $tunnelId --profile ecoagent --profile-dir $profileDir --runtime-api-key 'env:CONTROL_PLANE_API_KEY' --mcp-command 'D:/ECOAGENT/tools/node-v22.23.5-win-x64/node.exe D:/ECOAGENT/connector/desktop.mjs'
@@ -101,8 +105,12 @@ try{
    if($LASTEXITCODE -ne 0){throw "Unit tests failed: $r"}
    & $n connector/desktop.integration.mjs --fixture
    if($LASTEXITCODE -ne 0){throw "MCP browser fixture failed: $r"}
+   & $n connector/document-browser.integration.mjs
+   if($LASTEXITCODE -ne 0){throw "Document/submission/receipt integration failed: $r"}
   }finally{Pop-Location}
  }
+ if($EnableVisibleBrowser){$env:ECOAGENT_VISIBLE_BROWSER='1'}
+ if($EnableApprovalUI){$env:ECOAGENT_ENABLE_APPROVAL_UI='1'}
  $newStarted=$true
  Start-Ecoagent
  Write-Host "ECOAGENT UPDATED: $Commit; backup retained: $work" -ForegroundColor Green
@@ -115,9 +123,13 @@ try{
    elseif(Test-Path -LiteralPath $j.dest -PathType Leaf){Remove-Item -LiteralPath $j.dest -Force}
   }
  }
+ [Environment]::SetEnvironmentVariable('ECOAGENT_VISIBLE_BROWSER',$priorVisible,'Process')
+ [Environment]::SetEnvironmentVariable('ECOAGENT_ENABLE_APPROVAL_UI',$priorUI,'Process')
  if($stopped){Start-Ecoagent}
  throw "Maintenance failed: $failure. Backup retained if created: $work"
 }finally{
  if($null -eq $priorKey){Remove-Item Env:CONTROL_PLANE_API_KEY -ErrorAction SilentlyContinue}else{$env:CONTROL_PLANE_API_KEY=$priorKey}
+ [Environment]::SetEnvironmentVariable('ECOAGENT_VISIBLE_BROWSER',$priorVisible,'Process')
+ [Environment]::SetEnvironmentVariable('ECOAGENT_ENABLE_APPROVAL_UI',$priorUI,'Process')
  $lock.Dispose()
 }

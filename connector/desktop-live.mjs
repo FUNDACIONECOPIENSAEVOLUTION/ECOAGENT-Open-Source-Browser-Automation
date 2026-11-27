@@ -4,6 +4,7 @@ import {canDraft,validateDraft,findRef,StaleReferenceError} from './desktop-live
 import {sensitiveField} from '../privacy.mjs';
 import {createHash} from 'node:crypto';
 import {createPostPermit} from './submission-permit.mjs';
+import {authEndpoint,safeAuthRedirect} from './human-auth-policy.mjs';
 import {createSubmissionLedger} from './submission-ledger.mjs';
 import {storeReceipt} from './receipt-store.mjs';
 import {join} from 'node:path';
@@ -38,7 +39,7 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
    for(const r of s.refs.values())await r.handle.dispose().catch(()=>{});s.refs.clear();s.snapshot=randomUUID();s.handoff=true;
    return {session:s.id,snapshot:s.snapshot,blocked:true,reason:'authentication_required',manualRequired:true,submitted:false,elements:[]};
   }
-  s.handoff=false;await assertSafePage(s);
+  if(!s.humanAuth)s.handoff=false;await assertSafePage(s);
   for(const r of s.refs.values())await r.handle.dispose().catch(()=>{});s.refs.clear();s.snapshot=randomUUID();
   const fields=[];const nodes=await s.page.locator('input,textarea,select,button,a[href],img[alt],[role=button],[role=menuitem]').elementHandles();
   try{
@@ -95,6 +96,21 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
    const c=await browser.newContext({acceptDownloads:demo,serviceWorkers:'block',javaScriptEnabled:s.dynamicDemo||s.dynamicDraft||(!demo&&!draftMode)});
    await c.route('**/*',async r=>{
     const req=r.request();
+    if(s.humanAuth&&Date.now()<s.humanAuth.expires&&s.humanAuth.permit.consume({url:req.url(),method:req.method(),main:req.isNavigationRequest()&&req.frame()===s.page.mainFrame()})){
+     try{
+      const res=await r.fetch({maxRedirects:0,maxRetries:0,timeout:15000});
+      try{
+       const status=res.status();
+       if(status>=300&&status<400){
+        const next=safeAuthRedirect(res.headers().location,req.url(),status);
+        if(!next)return await r.fulfill({status:409,contentType:'text/plain',body:'Authentication redirect requires manual review'});
+        return await r.fulfill({response:res});
+       }
+       return await r.fulfill({response:res});
+      }finally{await res.dispose()}
+     }catch{await r.abort().catch(()=>{});return}
+    }
+    if(s.localInteraction&&!demo){s.localInteraction.blocked++;return r.abort()}
     if(s.postPermit?.consume({url:req.url(),method:req.method(),main:req.isNavigationRequest()&&req.frame()===s.page.mainFrame()})){
      if(demo){s.postStatus=200;return r.fulfill({status:200,contentType:'text/html',body:'<html><title>Synthetic receipt</title><body>OFFLINE TEST ONLY <a href="'+fixtureDownload+'">Download synthetic receipt</a></body></html>'})}
      try{const res=await r.fetch({maxRedirects:0,maxRetries:0,timeout:15000});try{s.postStatus=res.status();if(res.status()>=300&&res.status()<400)return r.fulfill({status:409,contentType:'text/plain',body:'Submission response redirect requires manual review'});return await r.fulfill({response:res})}finally{await res.dispose()}}catch{await r.abort().catch(()=>{});return}
@@ -108,6 +124,21 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
    s.context=c;s.page=await c.newPage();s.tabs.push(s.page);c.on('page',p=>{if(!s.creating&&!s.tabs.includes(p))void p.close().catch(()=>{})});return await navigate(s,u.href);
   }catch(e){await close();throw e}finally{s.active=false;if(session===s)arm(s)}
  },
+ humanTake:(id)=>run(id,async s=>{
+  if(!visible)throw new StaleReferenceError('Visible browser required');
+  if(!s.demo&&await authenticationRequired(s)){
+   const forms=await s.page.locator('form').evaluateAll(nodes=>nodes.filter(f=>f.querySelector('input[type=password],input[autocomplete=one-time-code]')).map(f=>({action:f.action,method:f.method,target:f.target,override:!!f.querySelector('[formaction],[formmethod],[formtarget]')})));
+   if(forms.length!==1)throw new StaleReferenceError('One native authentication form required');
+   const endpoint=authEndpoint(forms[0],s.origin);
+   s.humanAuth={permit:createPostPermit(endpoint),expires:Date.now()+120000};
+  }
+  s.handoff=true;await s.page.bringToFront();return {humanReady:true,authenticationPermit:!!s.humanAuth};
+ }),
+ humanRelease:(id)=>run(id,async s=>{
+  s.humanAuth=null;
+  if(await authenticationRequired(s))return {blocked:true,reason:'authentication_required'};
+  const state=await inspect(s);s.handoff=false;return state;
+ }),
  current:()=>session?{session:session.id,tab:session.tabs.indexOf(session.page)+1,demo:session.demo,draftMode:session.draftMode,handoff:!!session.handoff,visible}:null,
  inspect:id=>run(id,inspect),
  locate:(id,query)=>run(id,async s=>{
@@ -201,6 +232,27 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
   const blocked=await navigationGuard(s,false);
   if(blocked)return blocked;
   await Promise.all([s.page.waitForURL(r.href,{timeout:5000}),r.handle.click({timeout:5000})]);s.status=200;s.statuses.set(s.page,200);return inspect(s);
+ }),
+ dynamicControlPlan:(id,ref,element)=>run(id,async s=>{
+  await assertSafePage(s);
+  if(!(s.dynamicDraft||s.dynamicDemo)||s.status!==200)throw new StaleReferenceError('Dynamic draft required');
+  const r=findRef(ref,s.snapshot,s.refs,element);
+  if(r.info.tag!=='button'||r.info.type!=='button'||!await r.handle.isVisible())throw new StaleReferenceError('Explicit non-submit button required');
+  const info=await r.handle.evaluate(e=>({valid:e.isConnected&&!e.disabled&&e.type==='button'&&!e.hasAttribute('formaction')&&!e.hasAttribute('formmethod')&&!e.hasAttribute('formtarget'),label:(e.getAttribute('aria-label')||e.innerText||'').trim().slice(0,160)}));
+  if(!info.valid||!info.label)throw new StaleReferenceError('Button unavailable');
+  return {session:s.id,snapshot:s.snapshot,element,tab:s.tabs.indexOf(s.page)+1,url:s.page.url(),label:info.label,demo:s.demo};
+ }),
+ dynamicControlClick:(id,ref,element,expected)=>run(id,async s=>{
+  await assertSafePage(s);
+  if(!(s.dynamicDraft||s.dynamicDemo)||s.status!==200)throw new StaleReferenceError('Dynamic draft required');
+  const r=findRef(ref,s.snapshot,s.refs,element);
+  const valid=await r.handle.evaluate((e,label)=>e.isConnected&&!e.disabled&&e.tagName==='BUTTON'&&e.type==='button'&&!e.hasAttribute('formaction')&&!e.hasAttribute('formmethod')&&!e.hasAttribute('formtarget')&&(e.getAttribute('aria-label')||e.innerText||'').trim().slice(0,160)===label,expected.label);
+  if(!valid||expected.session!==s.id||expected.snapshot!==s.snapshot||expected.element!==element||expected.url!==s.page.url()||expected.tab!==s.tabs.indexOf(s.page)+1)throw new StaleReferenceError('Control changed');
+  const before=s.page.url();s.localInteraction={blocked:0};
+  let blocked=0;
+  try{await r.handle.click({timeout:5000});await s.page.waitForTimeout(300);if(s.page.url()!==before)throw new StaleReferenceError('Unexpected navigation');blocked=s.localInteraction.blocked}
+  finally{s.localInteraction=null}
+  return {...await inspect(s),networkRequestsBlocked:blocked,externalActionConfirmed:false,submitted:false};
  }),
  toggle:(id,ref,element,checked)=>run(id,async s=>{
   if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Static draft mode required');
