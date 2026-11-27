@@ -38,7 +38,7 @@ if (Test-Path -LiteralPath $tunnel -PathType Leaf) {
     try {
         # Capturamos la salida, pero NO la imprimimos: podria incluir datos de conexion.
         $tunnelStatus = (& $tunnel runtimes status ecoagent 2>&1 | Out-String)
-        $tunnelResult = if ($LASTEXITCODE -eq 0 -and $tunnelStatus -match '(?i)\bready\b') { 'ready' } else { 'no ready / revisar servicio' }
+        $tunnelResult = if ($LASTEXITCODE -eq 0 -and $tunnelStatus -match '(?i)\bready\b' -and $tunnelStatus -notmatch '(?i)\bnot\s+ready\b') { 'ready' } else { 'no ready / revisar servicio' }
     } catch { $tunnelResult = 'error al consultar servicio' }
 }
 $ports = @()

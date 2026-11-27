@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$Register,[switch]$Remove,[switch]$EnableApprovalUI)
+param([switch]$Register,[switch]$Remove,[switch]$EnableApprovalUI,[switch]$EnableVisibleBrowser)
 $ErrorActionPreference='Stop'
 $root='D:\ECOAGENT'
 $task='ECOAGENT Native Tunnel Watchdog'
@@ -15,6 +15,7 @@ if($Register){
  $user=[Security.Principal.WindowsIdentity]::GetCurrent().Name
  $args='-NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File "'+$script+'"'
  if($EnableApprovalUI){$args+=' -EnableApprovalUI'}
+ if($EnableVisibleBrowser){$args+=' -EnableVisibleBrowser'}
  $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $args -WorkingDirectory $root
  $logon=New-ScheduledTaskTrigger -AtLogOn -User $user
  $repeat=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 365)
@@ -37,6 +38,7 @@ try{$guard=[IO.File]::Open((Join-Path $state 'maintenance.lock'),[IO.FileMode]::
 catch [IO.IOException]{Write-Host 'Maintenance or watchdog active; skipping.';return}
 $oldKey=[Environment]::GetEnvironmentVariable('CONTROL_PLANE_API_KEY','Process')
 $oldUI=[Environment]::GetEnvironmentVariable('ECOAGENT_ENABLE_APPROVAL_UI','Process')
+$oldVisible=$env:ECOAGENT_VISIBLE_BROWSER
 function Record([string]$status){
  $obj=[ordered]@{utc=[DateTime]::UtcNow.ToString('o');status=$status}
  $obj|ConvertTo-Json -Compress|Set-Content -LiteralPath (Join-Path $state 'native-watchdog-status.json') -Encoding UTF8
@@ -56,6 +58,7 @@ try{
  $env:CONTROL_PLANE_API_KEY=($line -split '=',2)[1].Trim().Trim('"').Trim("'")
  if(!$env:CONTROL_PLANE_API_KEY){Record 'credential_empty';return}
  if($EnableApprovalUI){$env:ECOAGENT_ENABLE_APPROVAL_UI='1'}
+ if($EnableVisibleBrowser){$env:ECOAGENT_VISIBLE_BROWSER='1'}
  $null= & $tunnel runtimes connect --alias ecoagent --tunnel-id $id --profile ecoagent --profile-dir $profile --runtime-api-key 'env:CONTROL_PLANE_API_KEY' --mcp-command 'D:/ECOAGENT/tools/node-v22.23.5-win-x64/node.exe D:/ECOAGENT/connector/desktop.mjs' 2>&1
  if($LASTEXITCODE -ne 0){Record 'connect_failed';return}
  for($i=0;$i -lt 15;$i++){
@@ -68,5 +71,6 @@ try{
 finally{
  [Environment]::SetEnvironmentVariable('CONTROL_PLANE_API_KEY',$oldKey,'Process')
  [Environment]::SetEnvironmentVariable('ECOAGENT_ENABLE_APPROVAL_UI',$oldUI,'Process')
+ [Environment]::SetEnvironmentVariable('ECOAGENT_VISIBLE_BROWSER',$oldVisible,'Process')
  $guard.Dispose()
 }

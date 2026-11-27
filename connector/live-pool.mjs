@@ -1,5 +1,5 @@
 // Independent isolated browser instances, bounded to conserve local resources.
-const operations=['inspect','locate','reveal','scroll','clickLink','reload','history','follow','fill','tabs','newTab','switchTab','closeTab','click','dynamicControlPlan','dynamicControlClick','toggle','attachmentTarget','attachDocument','attachDocuments','submissionPlan','submitForm','submissionEvidence','receiptDownload','attachDemo','downloadDemo','preview','review','capture','verify','close'];
+const operations=['inspect','locate','reveal','scroll','clickLink','reload','history','follow','fill','tabs','newTab','switchTab','closeTab','click','dynamicControlPlan','dynamicControlClick','toggle','attachmentTarget','attachDocument','attachDocuments','submissionPlan','submitForm','submissionEvidence','humanTake','humanRelease','receiptDownload','attachDemo','downloadDemo','preview','review','capture','verify','close'];
 export function createLivePool({factory,onClose=()=>{},limit=4}){
  const sessions=new Map();let selected=null,opening=0;
  function remove(id){if(!sessions.delete(id))return;if(selected===id)selected=[...sessions.keys()].at(-1)??null;onClose(id)}
