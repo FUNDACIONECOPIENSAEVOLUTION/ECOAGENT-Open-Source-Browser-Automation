@@ -10,12 +10,12 @@ import {createSessions} from './desktop-sessions.mjs';
 import {createLive} from './desktop-live.mjs';
 import {createLivePool} from './live-pool.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.36.1'});
+const server=new McpServer({name:'ecoagent-local',version:'0.37.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.36.1',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.37.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -63,7 +63,7 @@ server.tool('ecoagent_live_capture','Return a screenshot of the offline syntheti
  if(control.status().mode==='human'||busy)return {isError:true,...result({error:'Busy or human control active'})};busy=true;
  try{const c=await live.capture(session);return {content:[{type:'image',data:c.data,mimeType:c.mimeType},{type:'text',text:JSON.stringify({sha256:c.sha256,demo:true})}]}}catch{return {isError:true,...result({error:'Capture failed or unavailable outside demo'})}}finally{busy=false}
 });
-server.tool('ecoagent_draft_open','Open approved anonymous public form in static draft mode, JavaScript disabled, no submissions or uploads. Only authorized non-sensitive institutional data.',{url:z.string().url().max(2048)},{readOnlyHint:true,openWorldHint:true},async({url})=>exclusive(()=>live.open(url,false,true)));
+server.tool('ecoagent_draft_open','Open approved anonymous public form in draft mode. Optional dynamic mode enables page JavaScript but retains same-origin GET/HEAD restrictions and no external submission. Only authorized non-sensitive institutional data.',{url:z.string().url().max(2048),dynamic:z.boolean().default(false)},{readOnlyHint:true,openWorldHint:true},async({url,dynamic})=>exclusive(()=>live.open(url,false,true,false,dynamic)));
 server.tool('ecoagent_tabs','List tabs in current temporary browser.',{session:sessionId},{readOnlyHint:true},async({session})=>exclusive(()=>live.tabs(session)));
 server.tool('ecoagent_new_tab','Open an exact inspected approved link in a new tab, maximum 80 subject to local resources.',liveRef,{readOnlyHint:true,openWorldHint:true},async({session,snapshot,element})=>exclusive(()=>live.newTab(session,snapshot,element)));
 server.tool('ecoagent_switch_tab','Select an existing temporary tab.',{session:sessionId,tab:z.number().int().min(1).max(80)},{readOnlyHint:true},async({session,tab})=>exclusive(()=>live.switchTab(session,tab)));

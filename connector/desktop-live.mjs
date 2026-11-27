@@ -41,7 +41,7 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
     s.refs.set(id,{handle,info,href});fields.push({id,tag:info.tag,type:info.type,label:String(info.label).replace(/\s+/g,' ').trim().slice(0,160),required:info.required,draft,toggle,attachment,follow:!!href,inViewport:await handle.evaluate(e=>{const r=e.getBoundingClientRect();return r.bottom>0&&r.right>0&&r.top<innerHeight&&r.left<innerWidth}),click:!!(s.dynamicDemo&&s.page.url()===fixture&&info.tag==='button'&&info.type==='button'&&!info.disabled&&await handle.evaluate(e=>['expand','nextStage','previousStage'].includes(e.id)))});
    }
   }finally{for(const h of nodes)if(![...s.refs.values()].some(r=>r.handle===h))await h.dispose().catch(()=>{})}
-  return {session:s.id,snapshot:s.snapshot,demo:s.demo,draftMode:s.draftMode,tab:s.tabs.indexOf(s.page)+1,url:s.page.url(),title:await s.page.title(),status:s.status,outcome:pageOutcome(s.status),text:(await s.page.locator('body').innerText({timeout:5000})).slice(0,5000),elements:fields};
+  return {session:s.id,snapshot:s.snapshot,demo:s.demo,draftMode:s.draftMode,dynamicDraft:!!s.dynamicDraft,tab:s.tabs.indexOf(s.page)+1,url:s.page.url(),title:await s.page.title(),status:s.status,outcome:pageOutcome(s.status),text:(await s.page.locator('body').innerText({timeout:5000})).slice(0,5000),elements:fields};
  }
  async function recordNavigation(s,r){s.status=r?.status()??null;s.statuses ||= new Map();s.statuses.set(s.page,s.status);return inspect(s)}
  async function navigate(s,url){const r=await s.page.goto(url,{waitUntil:'domcontentloaded',timeout:20000});return recordNavigation(s,r)}
@@ -58,14 +58,14 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
  }
  async function run(id,fn){const s=lookup(id);s.active=true;try{return await fn(s)}catch(e){if(!(e instanceof StaleReferenceError))await close();throw e}finally{s.active=false;if(session===s)arm(s)}}
  return {
- async open(url,demo=false,draftMode=false,dynamicDemo=false){
+ async open(url,demo=false,draftMode=false,dynamicDemo=false,dynamicDraft=false){
   if(session)throw Error('Close current live session first');const u=readURL(demo?fixture:url);
   // Import lazily: health and invalid-input tests work without browser installation.
   const {chromium}=await import('playwright');
   const browser=await chromium.launch({headless:!visible,chromiumSandbox:true,timeout:15000,env:Object.fromEntries(Object.entries(process.env).filter(([k])=>!/(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)/i.test(k))),});
-  const s={id:randomUUID(),browser,origin:u.origin,demo,draftMode,dynamicDemo:demo&&dynamicDemo,tabs:[],refs:new Map(),active:true};session=s;
+  const s={id:randomUUID(),browser,origin:u.origin,demo,draftMode,dynamicDemo:demo&&dynamicDemo,dynamicDraft:!demo&&draftMode&&dynamicDraft,tabs:[],refs:new Map(),active:true};session=s;
   try{
-   const c=await browser.newContext({acceptDownloads:demo,serviceWorkers:'block',javaScriptEnabled:s.dynamicDemo||(!demo&&!draftMode)});
+   const c=await browser.newContext({acceptDownloads:demo,serviceWorkers:'block',javaScriptEnabled:s.dynamicDemo||s.dynamicDraft||(!demo&&!draftMode)});
    await c.route('**/*',async r=>{
     if(demo){if(r.request().url()===fixtureDownload&&r.request().method()==='GET')return r.fulfill({status:200,headers:{'content-type':'text/plain','content-disposition':'attachment; filename="ecoagent-demo.txt"'},body:sampleDocument});if([fixture,fixtureNext].includes(r.request().url())&&r.request().method()==='GET')return r.fulfill({status:200,contentType:'text/html',body:r.request().url()===fixture?(s.dynamicDemo?dynamicHTML:html):'<html><title>Second page</title><body>Offline navigation successful</body></html>'});return r.abort()}
     if(!requestAllowed(r.request().url(),s.origin,r.request().method()))return r.abort();
@@ -140,7 +140,7 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
   if(blocked)return blocked;
   return navigate(s,r.href);
  }),
- fill:(id,ref,element,value)=>run(id,async s=>{if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Draft mode required');const r=findRef(ref,s.snapshot,s.refs,element);validateDraft(r.info,value);if(!await r.handle.evaluate(e=>e.isConnected&&!e.disabled&&!e.readOnly))throw Error('Field changed');if(r.info.tag==='select')await r.handle.selectOption({label:value},{timeout:5000});else await r.handle.fill(value,{timeout:5000});return inspect(s)}),
+ fill:(id,ref,element,value)=>run(id,async s=>{if(!(s.demo||s.draftMode)||s.status!==200)throw new StaleReferenceError('Draft mode required');await assertSafePage(s);const r=findRef(ref,s.snapshot,s.refs,element);validateDraft(r.info,value);if(!await r.handle.evaluate(e=>e.isConnected&&!e.disabled&&!e.readOnly))throw Error('Field changed');if(r.info.tag==='select')await r.handle.selectOption({label:value},{timeout:5000});else await r.handle.fill(value,{timeout:5000});return inspect(s)}),
  tabs:(id)=>run(id,async s=>({session:s.id,tabs:await Promise.all(s.tabs.map(async(p,i)=>({tab:i+1,active:p===s.page,url:p.url(),title:await p.title()})))})),
  newTab:(id,ref,element)=>run(id,async s=>{
   const r=findRef(ref,s.snapshot,s.refs,element);if(!r.href||s.status!==200)throw new StaleReferenceError('Invalid link');
