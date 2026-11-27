@@ -14,18 +14,26 @@ export const maxTabs=80;
 export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
  let session=null;
  async function close(){const s=session;session=null;if(s){clearTimeout(s.timer);try{await s.browser.close().catch(()=>{})}finally{onClose(s.id)}}return {closed:!!s}}
- function arm(s){clearTimeout(s.timer);s.timer=setTimeout(()=>{if(session===s&&!s.active)void close();else if(session===s)arm(s)},ttl);s.timer.unref()}
+ function arm(s){clearTimeout(s.timer);s.timer=setTimeout(()=>{if(session===s&&!s.active)void close();else if(session===s)arm(s)},s.handoff?Math.max(ttl,900000):ttl);s.timer.unref()}
  function lookup(id){if(!session||session.id!==id)throw Error('Unknown live session');return session}
+ async function authenticationRequired(s){
+  if(s.demo)return false;
+  for(const frame of s.page.frames())if(await frame.locator('input[type=password],input[autocomplete=one-time-code]').count())return true;
+  return false;
+ }
  async function assertSafePage(s){
   if(s.demo)return;
   const u=readURL(s.page.url());
   if(u.origin!==s.origin)throw Error('Origin changed');
-  for(const frame of s.page.frames()){
-   if(await frame.locator('input[type=password],input[autocomplete=one-time-code]').count())throw Error('Authentication screen; manual access required');
-  }
+  if(await authenticationRequired(s))throw new StaleReferenceError('Authentication screen; manual access required');
  }
  async function inspect(s){
-  await assertSafePage(s);
+  if(!s.demo){const u=readURL(s.page.url());if(u.origin!==s.origin)throw Error('Origin changed');}
+  if(await authenticationRequired(s)){
+   for(const r of s.refs.values())await r.handle.dispose().catch(()=>{});s.refs.clear();s.snapshot=randomUUID();s.handoff=true;
+   return {session:s.id,snapshot:s.snapshot,blocked:true,reason:'authentication_required',manualRequired:true,submitted:false,elements:[]};
+  }
+  s.handoff=false;await assertSafePage(s);
   for(const r of s.refs.values())await r.handle.dispose().catch(()=>{});s.refs.clear();s.snapshot=randomUUID();
   const fields=[];const nodes=await s.page.locator('input,textarea,select,button,a[href],img[alt],[role=button],[role=menuitem]').elementHandles();
   try{
@@ -76,7 +84,7 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
    s.context=c;s.page=await c.newPage();s.tabs.push(s.page);c.on('page',p=>{if(!s.creating&&!s.tabs.includes(p))void p.close().catch(()=>{})});return await navigate(s,u.href);
   }catch(e){await close();throw e}finally{s.active=false;if(session===s)arm(s)}
  },
- current:()=>session?{session:session.id,tab:session.tabs.indexOf(session.page)+1,demo:session.demo,draftMode:session.draftMode,visible}:null,
+ current:()=>session?{session:session.id,tab:session.tabs.indexOf(session.page)+1,demo:session.demo,draftMode:session.draftMode,handoff:!!session.handoff,visible}:null,
  inspect:id=>run(id,inspect),
  locate:(id,query)=>run(id,async s=>{
   await assertSafePage(s);
