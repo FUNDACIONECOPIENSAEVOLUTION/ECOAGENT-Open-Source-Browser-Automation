@@ -9,10 +9,10 @@ import {discover,validateDiscovery} from './desktop-discovery.mjs';
 import {createSessions} from './desktop-sessions.mjs';
 import {createLive} from './desktop-live.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.25.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.26.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.25.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.26.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -65,4 +65,19 @@ server.tool('ecoagent_preview','Return a masked screenshot of a static public dr
  if(busy)return {isError:true,...result({error:'Busy'})};busy=true;
  try{const c=await live.preview(session);return {content:[{type:'image',data:c.data,mimeType:c.mimeType},{type:'text',text:JSON.stringify({sha256:c.sha256,masked:true})}]}}catch{return {isError:true,...result({error:'Preview failed'})}}finally{busy=false}
 });
+// Approval decisions are available only through the opt-in loopback UI, never an MCP tool.
+const {createApprovals,actionDigest}=await import('./approval-policy.mjs');
+const approvals=createApprovals();
+let approvalUI;
+server.tool('ecoagent_request_demo_approval','Request local human approval for a synthetic document action. Does not authorize or execute the action.',{session:sessionId,action:z.enum(['demo-attach','demo-download'])},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session,action})=>exclusive(async()=>{
+ if(process.env.ECOAGENT_ENABLE_APPROVAL_UI!=='1')throw Error('Local approval UI disabled');
+ const s=await live.inspect(session);if(!s.demo)throw Error('Demo session required');
+ if(!approvalUI){const {startApprovalUI}=await import('./approval-ui.mjs');approvalUI=await startApprovalUI(approvals);console.error('ECOAGENT local approval UI: '+approvalUI.url)}
+ const a=approvals.request({session,action,description:action==='demo-attach'?'Attach built-in synthetic test document':'Download built-in synthetic test document',digest:actionDigest(session,action)});
+ return {id:a.id,state:a.state,expires:a.expires,instruction:'Open the local approval URL printed in runtime diagnostics. No approval can be granted through MCP.'};
+}));
+server.tool('ecoagent_approved_demo_action','Execute a single locally approved synthetic document operation; exact session and action bound. No external submission.',{session:sessionId,approval:sessionId,action:z.enum(['demo-attach','demo-download'])},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session,approval,action})=>exclusive(async()=>{
+ approvals.consume(approval,{session,action,digest:actionDigest(session,action)});
+ return action==='demo-attach'?live.attachDemo(session):live.downloadDemo(session);
+}));
 await server.connect(new StdioServerTransport());
