@@ -1,0 +1,3 @@
+# ECOAGENT v0.45.0 — native human authentication handoff
+
+Experimental headed browser handoff for one native same-origin POST authentication form, a two-minute single-use permit, and safe same-origin 302/303 redirects only. Human enters credentials directly in the visible browser. Remote observer disabled during human control; no credentials returned. Release revokes permit and re-inspects. No SSO, CAPTCHA automation, cross-origin login, JS/XHR login or query-token redirects. Policy tests added; actual browser authentication integration and real portal acceptance remain pending. Stacked on PR 22.

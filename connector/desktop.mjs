@@ -11,12 +11,12 @@ import {createLive} from './desktop-live.mjs';
 import {createLivePool} from './live-pool.mjs';
 import {createSubmissionLedger} from './submission-ledger.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.42.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.46.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.42.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.46.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -158,21 +158,35 @@ server.tool('ecoagent_submit_form','Execute one locally approved exact static PO
  return live.submitForm(args.session,args.snapshot,args.element,plan);
 }));
 server.tool('ecoagent_submission_evidence','Read bounded current response evidence after a submission attempt. HTTP success alone is not confirmation.',{session:sessionId},{readOnlyHint:true,openWorldHint:false},async({session})=>exclusive(()=>live.submissionEvidence(session)));
+server.tool('ecoagent_receipt_download','Retrieve an exact same-origin document link on the current submission response; save bounded original bytes locally. Does not confirm an application.',liveRef,{readOnlyHint:false,destructiveHint:false,openWorldHint:true},async({session,snapshot,element})=>exclusive(()=>live.receiptDownload(session,snapshot,element)));
 server.tool('ecoagent_submission_history','List persistent and current submission attempts without form values. Does not establish application confirmation.',{},{readOnlyHint:true,openWorldHint:false},async()=>exclusive(async()=>submissionLedger.list()));
+server.tool('ecoagent_prepare_dynamic_control','Request local approval for an exact non-submit button in a dynamic draft. Network requests during click are blocked.',liveRef,{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async(args)=>exclusive(async()=>{
+ await ensureLocalUI();const plan=await live.dynamicControlPlan(args.session,args.snapshot,args.element);
+ const digest=createHash('sha256').update(JSON.stringify(plan)).digest('hex');
+ const description='Activate local draft control '+plan.label+' at '+plan.url;
+ if(description.length>300)throw Error('Target too long');
+ const a=approvals.request({session:args.session,action:'dynamic-control',description,digest});
+ return {approval:a.id,state:a.state,expires:a.expires,target:plan};
+}));
+server.tool('ecoagent_click_dynamic_control','Activate exact locally approved non-submit button and refresh snapshot; no external submission.',{...liveRef,approval:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async(args)=>exclusive(async()=>{
+ const plan=await live.dynamicControlPlan(args.session,args.snapshot,args.element);
+ const digest=createHash('sha256').update(JSON.stringify(plan)).digest('hex');
+ approvals.consume(args.approval,{session:args.session,action:'dynamic-control',digest});
+ return live.dynamicControlClick(args.session,args.snapshot,args.element,plan);
+}));
 server.tool('ecoagent_reload','Reload the active browser tab. Blocks if unsaved draft fields or attachments exist unless the user explicitly agrees to discard them. Never submit a form.',{session:sessionId,discard:z.boolean().default(false)},{readOnlyHint:false,destructiveHint:true,openWorldHint:true},async({session,discard})=>exclusive(()=>live.reload(session,discard)));
 server.tool('ecoagent_history','Navigate back or forward in the active browser tab. Blocks unsaved draft changes unless the user explicitly agrees to discard them.',{session:sessionId,direction:z.enum(['back','forward']),discard:z.boolean().default(false)},{readOnlyHint:false,destructiveHint:true,openWorldHint:true},async({session,direction,discard})=>exclusive(()=>live.history(session,direction,discard)));
 // Only local HTTP UI can take/release control or perform these limited actions.
 const manual={
  status:()=>({...control.status(),browser:live.current()}),
- async observe(){if(busy)return {busy:true};const s=live.current();if(!s)return {available:false};busy=true;try{return {available:true,...await live.preview(s.session)}}finally{busy=false}},
+ async observe(){if(control.status().mode==='human')return {available:false};if(busy)return {busy:true};const s=live.current();if(!s)return {available:false};busy=true;try{return {available:true,...await live.preview(s.session)}}finally{busy=false}},
  async execute(action,args={}){
   if(busy)throw Error('Browser busy');busy=true;
   try{
-   if(action==='take')return control.take();
-   if(action==='release'){const id=control.assertHuman();const state=await live.inspect(id);if(state.manualRequired)return {blocked:true,reason:state.reason,...control.status()};return {...control.release(),resumed:true,session:id,snapshot:state.snapshot}}
+   if(action==='take'){const state=control.status();if(!state.requested||!state.session)throw Error('No pending takeover');await live.humanTake(state.session);return control.take()}
+   if(action==='release'){const id=control.assertHuman();const state=await live.humanRelease(id);if(state.manualRequired||state.blocked)return {blocked:true,reason:state.reason,...control.status()};return {...control.release(),resumed:true,session:id,snapshot:state.snapshot}}
    const id=control.assertHuman();
-   if(action==='inspect')return live.inspect(id);
-   if(action==='preview')return live.preview(id);
+   if(action==='inspect'||action==='preview')return {blocked:true,reason:'Use the visible browser during manual control'};
    if(action==='reload')return live.reload(id,false);
    if(action==='back'||action==='forward')return live.history(id,action,false);
    if(action==='switch')return live.switchTab(id,args.tab);
