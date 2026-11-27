@@ -1,0 +1,7 @@
+# Native tunnel watchdog
+
+Opt-in Windows task for the existing `ecoagent` process-mode runtime, not the historical REST startup. Install only reviewed code into `D:\ECOAGENT\scripts\watch-native-tunnel.ps1`. Run `powershell -NoProfile -File D:\ECOAGENT\scripts\watch-native-tunnel.ps1 -Register` to register under the current interactive user. Checks at logon and every five minutes for one year; no elevated privileges. Run without switches for a single check; `-Remove` unregisters the task without stopping the tunnel. Optional `-EnableApprovalUI` applies on a new connection, not to an already running runtime; propagation must be tested locally.
+
+Uses the existing alias and credential, never creates a tunnel, never stops a runtime, never prints credentials. Shares maintenance.lock with the installer; skips while maintenance is active. Writes only redacted status in local-config/native-watchdog-status.json. No automatic code updates or external submissions. No guarantee of reconnect when logged out, computer asleep, network unavailable or credential revoked. Windows execution, scheduling and recovery acceptance remain pending. Do not intentionally disconnect an active browser session to test recovery.
+
+Acceptance: run once against ready runtime; confirm status ready and uninterrupted ChatGPT health. Register and inspect task, then verify a scheduled execution. Test recovery only during idle maintenance, retain existing runtime identity. Confirm the 35 exposed tools afterward.
