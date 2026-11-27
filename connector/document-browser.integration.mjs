@@ -27,3 +27,5 @@ try{
  assert.throws(()=>approvals.consume(a.id,request));
  assert.ok(vault.remove(doc.id));console.log('LOCAL DOCUMENT APPROVAL AND CHROMIUM 20 MIB ATTACHMENT OK');
 }finally{if(session)await live.close(session).catch(()=>{});await ui.close()}
+
+await import('./multi-attachment.integration.mjs');

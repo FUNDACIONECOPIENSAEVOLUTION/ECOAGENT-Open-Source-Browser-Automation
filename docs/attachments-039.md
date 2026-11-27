@@ -1,0 +1,3 @@
+# ECOAGENT v0.39.0 — multi-file attachment
+
+One local approval binds up to four original files to an exact draft input, session, snapshot and hashes. Browser-side SHA-256 verifies selected bytes. Existing input contents are not replaced in the batch operation. No external upload is claimed: current network policy still blocks writes. Separate offline browser integration script `node connector/multi-attachment.integration.mjs` must be run before acceptance. Existing CI tests cover tool registration; the new script is not yet executed by CI. ChatGPT generates documents, ECOAGENT transports them. Remaining gates: actual artifact bridge, authenticated browser writes, external upload and receipt.
