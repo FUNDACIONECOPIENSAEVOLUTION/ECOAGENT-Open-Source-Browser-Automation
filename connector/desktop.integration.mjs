@@ -15,16 +15,16 @@ try{
  const badLive=await client.callTool({name:'ecoagent_live_open',arguments:{url:'https://localhost/'}});assert.equal(badLive.isError,true);
  if(process.argv.includes('--fixture')){
   const call=async(name,args)=>{const r=await client.callTool({name,arguments:args},undefined,{timeout:45000});assert.equal(r.isError??false,false,name+': '+JSON.stringify(r.content));return JSON.parse(r.content[0].text)};
-  let a=await call('ecoagent_live_demo',{});const field=a.elements.find(e=>e.label==='Project');assert.ok(field?.draft);assert.ok(!a.elements.some(e=>e.type==='password'));
+  let a=await call('ecoagent_live_demo',{});const field=a.elements.find(e=>e.label==='Project');assert.ok(field?.draft,JSON.stringify(a.elements));assert.ok(!a.elements.some(e=>e.type==='password'));
   a=await call('ecoagent_live_draft',{session:a.session,snapshot:a.snapshot,element:field.id,value:'Synthetic project'});
   const project=a.elements.find(e=>e.label==='Project');
   assert.equal((await call('ecoagent_live_verify',{session:a.session,snapshot:a.snapshot,element:project.id,value:'Synthetic project'})).matches,true);
   assert.equal((await call('ecoagent_live_verify',{session:a.session,snapshot:a.snapshot,element:project.id,value:'Wrong value'})).matches,false);
-  const category=a.elements.find(e=>e.label==='Category');assert.ok(category?.draft);
+  const category=a.elements.find(e=>e.label==='Category');assert.ok(category?.draft,JSON.stringify(a.elements));
   a=await call('ecoagent_live_draft',{session:a.session,snapshot:a.snapshot,element:category.id,value:'Environment'});
   const selected=a.elements.find(e=>e.label==='Category');
   assert.equal((await call('ecoagent_live_verify',{session:a.session,snapshot:a.snapshot,element:selected.id,value:'Environment'})).matches,true);
-  const review=await call('ecoagent_live_review',{session:a.session});assert.equal(review.ready,true);assert.equal(review.submitted,false);
+  const review=await call('ecoagent_live_review',{session:a.session});assert.equal(review.ready,true,JSON.stringify(review));assert.equal(review.submitted,false);
   const capture=await client.callTool({name:'ecoagent_live_capture',arguments:{session:a.session}},undefined,{timeout:45000});assert.equal(capture.isError??false,false);assert.equal(capture.content[0].type,'image');assert.ok(Buffer.from(capture.content[0].data,'base64').length>100);
   await call('ecoagent_live_close',{session:a.session});console.log('OFFLINE LIVE FORM MCP OK');
  }

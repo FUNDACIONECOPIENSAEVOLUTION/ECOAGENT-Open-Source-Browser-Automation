@@ -17,11 +17,11 @@ export function createLive(root,{ttl=300000}={}){
   try{
    for(const handle of nodes.slice(0,150)){
     if(fields.length>=60||!await handle.isVisible().catch(()=>false))continue;
-    const info=await handle.evaluate(e=>({tag:e.tagName.toLowerCase(),type:e.type||'',name:e.name||'',label:e.getAttribute('aria-label')||Array.from(e.labels||[]).map(l=>l.innerText).join(' ')||e.getAttribute('placeholder')||((e.tagName==='BUTTON'||e.tagName==='A')?e.innerText:'')||'',autocomplete:e.autocomplete||'',required:!!e.required,disabled:!!e.disabled,readOnly:!!e.readOnly,href:e.tagName==='A'?e.href:''})).catch(()=>null);
+    const info=await handle.evaluate(e=>({tag:e.tagName.toLowerCase(),type:e.type||'',name:e.name||'',label:e.getAttribute('aria-label')||Array.from(e.labels||[]).map(l=>{const copy=l.cloneNode(true);copy.querySelectorAll('input,textarea,select,button').forEach(n=>n.remove());return copy.textContent||''}).join(' ')||e.getAttribute('placeholder')||((e.tagName==='BUTTON'||e.tagName==='A')?e.innerText:'')||'',autocomplete:e.autocomplete||'',required:!!e.required,disabled:!!e.disabled,readOnly:!!e.readOnly,href:e.tagName==='A'?e.href:''})).catch(()=>null);
     if(!info||sensitiveField(info))continue;
     const id=randomUUID();let href=null;if(info.href&&!s.demo)try{const u=readURL(info.href);if(u.origin===s.origin)href=u.href}catch{}
     const draft=s.demo&&canDraft(info);
-    s.refs.set(id,{handle,info,href});fields.push({id,tag:info.tag,type:info.type,label:String(info.label).slice(0,160),required:info.required,draft,follow:!!href});
+    s.refs.set(id,{handle,info,href});fields.push({id,tag:info.tag,type:info.type,label:String(info.label).replace(/\s+/g,' ').trim().slice(0,160),required:info.required,draft,follow:!!href});
    }
   }finally{for(const h of nodes)if(![...s.refs.values()].some(r=>r.handle===h))await h.dispose().catch(()=>{})}
   return {session:s.id,snapshot:s.snapshot,demo:s.demo,url:s.page.url(),title:await s.page.title(),status:s.status,outcome:pageOutcome(s.status),text:(await s.page.locator('body').innerText({timeout:5000})).slice(0,5000),elements:fields};
