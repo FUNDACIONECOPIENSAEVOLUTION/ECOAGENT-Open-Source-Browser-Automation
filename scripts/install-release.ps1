@@ -1,320 +1,123 @@
-param([Parameter(Mandatory=$true)][ValidatePattern('^[a-f0-9]{40}
+param(
+ [Parameter(Mandatory=$true)][ValidatePattern('^[a-f0-9]{40}$')][string]$Commit,
+ [switch]$ConfirmIdle
+)
 $ErrorActionPreference='Stop'
-if(!$ConfirmIdle){throw 'Manual maintenance only: confirm there are no active ECOAGENT jobs with -ConfirmIdle'}
+if(!$ConfirmIdle){throw 'Confirm idle maintenance using -ConfirmIdle'}
 $root='D:\ECOAGENT'
 $roots=@($root,'F:\ECOAGENT')
 $repo='FUNDACIONECOPIENSAEVOLUTION/ECOAGENT-Open-Source-Browser-Automation'
-$headers=@{'User-Agent'='ECOAGENT-release-updater'}
+$api="https://api.github.com/repos/$repo"
+$headers=@{'User-Agent'='ECOAGENT-maintenance'}
 $tunnel=Join-Path $root 'tools\tunnel-client\tunnel-client.exe'
 $profileDir=Join-Path $root 'local-config\tunnel-profiles'
-$node=Join-Path $root 'tools\node-v22.23.5-win-x64\node.exe'
-$runtime=(& $tunnel runtimes list|Out-String)
-if($LASTEXITCODE -ne 0 -or $runtime -notmatch '(?m)^ecoagent\s+(tunnel_[a-zA-Z0-9]+)\s*
 foreach($r in $roots){if(!(Test-Path $r -PathType Container)){throw "Missing drive: $r"}}
-foreach($p in @(8790,8791,8080,8081,8082)){if(Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue){throw "Other ECOAGENT service active on $p"}}
-$rev=Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/commits/$Commit" -Headers $headers -TimeoutSec 30
-if($rev.sha -ne $Commit){throw 'Revision mismatch'}
-$tree=Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/git/trees/$($rev.commit.tree.sha)?recursive=1" -Headers $headers -TimeoutSec 30
-if($tree.truncated){throw 'Incomplete tree'}
-$entries=@($tree.tree|Where-Object {$_.type -eq 'blob' -and $_.mode -eq '100644' -and $_.path -match '^(?:(?:cloud|connector|gateway|docs|extension|scripts|test)/[A-Za-z0-9_./-]+|[A-Za-z0-9_-]+\.(?:mjs|js|css|html|ps1|md|json))$' -and $_.path -notmatch '(^|/)\.\.?(/|$)'})
-if($entries.Count -lt 30 -or $entries.Count -gt 500){throw 'Unexpected source list'}
-$backup=Join-Path $root ('.release-backup-'+[guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $backup|Out-Null
-$journal=New-Object 'System.Collections.Generic.List[object]'
-$changed=$false;$stopped=$false;$success=$false
+$state=Join-Path $root 'local-config'
+New-Item -ItemType Directory -Force $state|Out-Null
+$lock=[IO.File]::Open((Join-Path $state 'maintenance.lock'),[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
 $priorKey=[Environment]::GetEnvironmentVariable('CONTROL_PLANE_API_KEY','Process')
+$stopped=$false;$modified=$false;$newStarted=$false
+$journal=@()
+$work=Join-Path $root ('.maintenance-'+[guid]::NewGuid().ToString('N'))
+function Hash([string]$p){(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash}
+function Blob([string]$p){
+ $b=[IO.File]::ReadAllBytes($p);$prefix=[Text.Encoding]::ASCII.GetBytes("blob $($b.Length)"+[char]0)
+ $h=[Security.Cryptography.SHA1]::Create()
+ try{$h.TransformBlock($prefix,0,$prefix.Length,$prefix,0)|Out-Null;$h.TransformFinalBlock($b,0,$b.Length)|Out-Null;([BitConverter]::ToString($h.Hash)).Replace('-','').ToLowerInvariant()}finally{$h.Dispose()}
+}
+function Ready {
+ $s=(& $tunnel runtimes status ecoagent|Out-String)
+ return ($LASTEXITCODE -eq 0 -and $s -match '\bready\b')
+}
 function Start-Ecoagent {
  & $tunnel runtimes connect --alias ecoagent --tunnel-id $tunnelId --profile ecoagent --profile-dir $profileDir --runtime-api-key 'env:CONTROL_PLANE_API_KEY' --mcp-command 'D:/ECOAGENT/tools/node-v22.23.5-win-x64/node.exe D:/ECOAGENT/connector/desktop.mjs'
  if($LASTEXITCODE -ne 0){throw 'Tunnel connect failed'}
- $status=(& $tunnel runtimes status ecoagent|Out-String)
- if($LASTEXITCODE -ne 0 -or $status -notmatch '\bready\b'){throw 'Tunnel not ready'}
+ for($i=0;$i -lt 15;$i++){if(Ready){return};Start-Sleep -Seconds 2}
+ throw 'Tunnel not ready'
 }
 try{
+ $runs=Invoke-RestMethod "$api/actions/runs?head_sha=$Commit&event=push&per_page=100" -Headers $headers -TimeoutSec 30
+ if(!(@($runs.workflow_runs|Where-Object {$_.head_sha -eq $Commit -and $_.name -eq 'ECOAGENT verification' -and $_.status -eq 'completed' -and $_.conclusion -eq 'success'}).Count)){throw 'CI has not passed for exact revision'}
+ $revision=Invoke-RestMethod "$api/commits/$Commit" -Headers $headers -TimeoutSec 30
+ if($revision.sha -ne $Commit){throw 'Revision mismatch'}
+ $tree=Invoke-RestMethod "$api/git/trees/$($revision.commit.tree.sha)?recursive=1" -Headers $headers -TimeoutSec 30
+ if($tree.truncated){throw 'Incomplete tree'}
+ $entries=@($tree.tree|Where-Object {$_.type -eq 'blob' -and $_.mode -eq '100644' -and $_.path -match '^(?:(?:cloud|connector|gateway|docs|extension|scripts|test)/[A-Za-z0-9_./-]+|[A-Za-z0-9_-]+\.(?:mjs|js|css|html|ps1|md|json))$' -and $_.path -notmatch '(^|/)\.\.?(/|$)'})
+ if($entries.Count -lt 30 -or $entries.Count -gt 500){throw 'Unexpected source list'}
+ New-Item -ItemType Directory -Path $work|Out-Null
+ $stage=Join-Path $work 'stage'
+ foreach($e in $entries){
+  $p=Join-Path $stage $e.path
+  New-Item -ItemType Directory -Force (Split-Path $p -Parent)|Out-Null
+  $source=Join-Path $root $e.path
+  if((Test-Path -LiteralPath $source -PathType Leaf) -and (Blob $source) -eq $e.sha){Copy-Item -LiteralPath $source -Destination $p}
+  else{Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/$repo/$Commit/$($e.path)" -OutFile $p -TimeoutSec 60}
+  if((Blob $p) -ne $e.sha){throw "Source hash mismatch: $($e.path)"}
+  if($p.EndsWith('.ps1')){ $tokens=$null;$errors=$null;[System.Management.Automation.Language.Parser]::ParseFile($p,[ref]$tokens,[ref]$errors)|Out-Null;if($errors.Count){throw "PowerShell syntax error: $($e.path)"}}
+ }
+ $runtime=(& $tunnel runtimes list|Out-String)
+ if($LASTEXITCODE -ne 0 -or $runtime -notmatch '(?m)^ecoagent[ \t]+(tunnel_[a-zA-Z0-9]+)[ \t]*\r?$'){throw 'Existing ecoagent alias not found'}
+ $tunnelId=$Matches[1]
+ if(!(Ready)){throw 'Existing runtime not ready'}
  $line=Get-Content (Join-Path $root '.env.local')|Where-Object {$_ -match '^\s*CONTROL_PLANE_API_KEY\s*='}|Select-Object -First 1
- if(!$line){throw 'Existing runtime credential missing'}
+ if(!$line){throw 'Existing credential missing'}
  $env:CONTROL_PLANE_API_KEY=($line -split '=',2)[1].Trim().Trim('"').Trim("'")
  if(!$env:CONTROL_PLANE_API_KEY){throw 'Empty runtime credential'}
- # Preserve only tracked source paths targeted by the existing verified updater.
+ foreach($port in @(8790,8791,8080,8081,8082)){if(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue){throw "Other ECOAGENT service active: $port"}}
+ # Stop only the managed alias after download and syntax checks.
+ & $tunnel runtimes stop ecoagent
+ if($LASTEXITCODE -ne 0){throw 'Could not stop managed runtime'}
+ $stopped=$true
+ $running=Get-CimInstance Win32_Process -Filter "Name = 'node.exe'"|Where-Object {$_.CommandLine -match '(?i)ECOAGENT[\\/]connector[\\/]desktop\.mjs'}
+ if($running){throw 'Another ECOAGENT MCP process is active; close it manually'}
  foreach($r in $roots){
   foreach($e in $entries){
    $dest=Join-Path $r $e.path
-   $saved=Join-Path (Join-Path $backup $r.Substring(0,1)) $e.path
+   $saved=Join-Path (Join-Path $work $r.Substring(0,1)) $e.path
    $exists=Test-Path -LiteralPath $dest -PathType Leaf
-   if($exists){New-Item -ItemType Directory -Force -Path (Split-Path $saved -Parent)|Out-Null;Copy-Item -LiteralPath $dest -Destination $saved}
-   $journal.Add([pscustomobject]@{dest=$dest;saved=$saved;existed=$exists})
+   $hash=$null
+   if($exists){
+    New-Item -ItemType Directory -Force (Split-Path $saved -Parent)|Out-Null
+    Copy-Item -LiteralPath $dest -Destination $saved
+    $hash=Hash $dest
+    if((Hash $saved) -ne $hash){throw 'Backup hash mismatch'}
+   }
+   $journal+= [pscustomobject]@{dest=$dest;saved=$saved;existed=$exists;hash=$hash}
   }
  }
- $journal|ConvertTo-Json -Depth 3|Set-Content -LiteralPath (Join-Path $backup 'journal.json') -Encoding UTF8
- # Do not interrupt an unknown or already unhealthy runtime.
- $status=(& $tunnel runtimes status ecoagent|Out-String)
- if($LASTEXITCODE -ne 0 -or $status -notmatch '\bready\b'){throw 'Existing tunnel not ready; manual inspection required'}
- & $tunnel runtimes stop ecoagent
- if($LASTEXITCODE -ne 0){throw 'Cannot stop existing runtime'}
- $stopped=$true;$changed=$true
- & powershell.exe -NoProfile -File (Join-Path $root 'actualizar-ecoagent.ps1') -Commit $Commit
- if($LASTEXITCODE -ne 0){throw 'Source updater failed'}
+ $journal|ConvertTo-Json -Depth 4|Set-Content (Join-Path $work 'journal.json') -Encoding UTF8
+ $modified=$true
  foreach($r in $roots){
+  foreach($e in $entries){
+   $dest=Join-Path $r $e.path
+   New-Item -ItemType Directory -Force (Split-Path $dest -Parent)|Out-Null
+   Copy-Item -LiteralPath (Join-Path $stage $e.path) -Destination $dest -Force
+   if((Blob $dest) -ne $e.sha){throw 'Copy hash mismatch'}
+  }
   Push-Location $r
   try{
    $n=Join-Path $r 'tools\node-v22.23.5-win-x64\node.exe'
    & $n --test test/*.test.mjs cloud/*.test.mjs connector/*.test.mjs gateway/*.test.mjs
    if($LASTEXITCODE -ne 0){throw "Unit tests failed: $r"}
-   & $n connector/desktop.integration.mjs
-   if($LASTEXITCODE -ne 0){throw "MCP smoke failed: $r"}
    & $n connector/desktop.integration.mjs --fixture
-   if($LASTEXITCODE -ne 0){throw "Browser fixture failed: $r"}
+   if($LASTEXITCODE -ne 0){throw "MCP browser fixture failed: $r"}
   }finally{Pop-Location}
  }
+ $newStarted=$true
  Start-Ecoagent
- $success=$true
+ Write-Host "ECOAGENT UPDATED: $Commit; backup retained: $work" -ForegroundColor Green
 }catch{
  $failure=$_.Exception.Message
- if($changed){
-  # Stop any newly launched process before restoring source.
-  & $tunnel runtimes stop ecoagent|Out-Null
+ if($newStarted){& $tunnel runtimes stop ecoagent;if($LASTEXITCODE -ne 0){throw "Cannot stop new runtime; manual recovery required: $work"}}
+ if($modified){
   foreach($j in $journal){
-   if($j.existed){Copy-Item -LiteralPath $j.saved -Destination $j.dest -Force}
+   if($j.existed){Copy-Item -LiteralPath $j.saved -Destination $j.dest -Force;if((Hash $j.dest) -ne $j.hash){throw "Restore verification failed: $work"}}
    elseif(Test-Path -LiteralPath $j.dest -PathType Leaf){Remove-Item -LiteralPath $j.dest -Force}
   }
-  if($stopped){Start-Ecoagent}
  }
- throw "Update failed: $failure. Backup retained: $backup"
+ if($stopped){Start-Ecoagent}
+ throw "Maintenance failed: $failure. Backup retained if created: $work"
 }finally{
  if($null -eq $priorKey){Remove-Item Env:CONTROL_PLANE_API_KEY -ErrorAction SilentlyContinue}else{$env:CONTROL_PLANE_API_KEY=$priorKey}
- if($success){Write-Host "RELEASE BACKUP RETAINED: $backup"}
-}
-)][string]$Commit,[switch]$ConfirmIdle)
-$ErrorActionPreference='Stop'
-$root='D:\ECOAGENT'
-$roots=@($root,'F:\ECOAGENT')
-$repo='FUNDACIONECOPIENSAEVOLUTION/ECOAGENT-Open-Source-Browser-Automation'
-$headers=@{'User-Agent'='ECOAGENT-release-updater'}
-$tunnel=Join-Path $root 'tools\tunnel-client\tunnel-client.exe'
-$profileDir=Join-Path $root 'local-config\tunnel-profiles'
-$node=Join-Path $root 'tools\node-v22.23.5-win-x64\node.exe'
-$tunnelId='tunnel_6b08db5b62388191acf166acd8275d9b'
-foreach($r in $roots){if(!(Test-Path $r -PathType Container)){throw "Missing drive: $r"}}
-foreach($p in @(8790,8791,8080,8081,8082)){if(Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue){throw "Other ECOAGENT service active on $p"}}
-$rev=Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/commits/$Commit" -Headers $headers -TimeoutSec 30
-if($rev.sha -ne $Commit){throw 'Revision mismatch'}
-$tree=Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/git/trees/$($rev.commit.tree.sha)?recursive=1" -Headers $headers -TimeoutSec 30
-if($tree.truncated){throw 'Incomplete tree'}
-$entries=@($tree.tree|Where-Object {$_.type -eq 'blob' -and $_.mode -eq '100644' -and $_.path -match '^(?:(?:cloud|connector|gateway|docs|extension|scripts|test)/[A-Za-z0-9_./-]+|[A-Za-z0-9_-]+\.(?:mjs|js|css|html|ps1|md|json))$' -and $_.path -notmatch '(^|/)\.\.?(/|$)'})
-if($entries.Count -lt 30 -or $entries.Count -gt 500){throw 'Unexpected source list'}
-$backup=Join-Path $root ('.release-backup-'+[guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $backup|Out-Null
-$journal=New-Object 'System.Collections.Generic.List[object]'
-$changed=$false;$stopped=$false;$success=$false
-$priorKey=[Environment]::GetEnvironmentVariable('CONTROL_PLANE_API_KEY','Process')
-function Start-Ecoagent {
- & $tunnel runtimes connect --alias ecoagent --tunnel-id $tunnelId --profile ecoagent --profile-dir $profileDir --runtime-api-key 'env:CONTROL_PLANE_API_KEY' --mcp-command 'D:/ECOAGENT/tools/node-v22.23.5-win-x64/node.exe D:/ECOAGENT/connector/desktop.mjs'
- if($LASTEXITCODE -ne 0){throw 'Tunnel connect failed'}
- $status=(& $tunnel runtimes status ecoagent|Out-String)
- if($LASTEXITCODE -ne 0 -or $status -notmatch '\bready\b'){throw 'Tunnel not ready'}
-}
-try{
- $line=Get-Content (Join-Path $root '.env.local')|Where-Object {$_ -match '^\s*CONTROL_PLANE_API_KEY\s*='}|Select-Object -First 1
- if(!$line){throw 'Existing runtime credential missing'}
- $env:CONTROL_PLANE_API_KEY=($line -split '=',2)[1].Trim().Trim('"').Trim("'")
- if(!$env:CONTROL_PLANE_API_KEY){throw 'Empty runtime credential'}
- # Preserve only tracked source paths targeted by the existing verified updater.
- foreach($r in $roots){
-  foreach($e in $entries){
-   $dest=Join-Path $r $e.path
-   $saved=Join-Path (Join-Path $backup $r.Substring(0,1)) $e.path
-   $exists=Test-Path -LiteralPath $dest -PathType Leaf
-   if($exists){New-Item -ItemType Directory -Force -Path (Split-Path $saved -Parent)|Out-Null;Copy-Item -LiteralPath $dest -Destination $saved}
-   $journal.Add([pscustomobject]@{dest=$dest;saved=$saved;existed=$exists})
-  }
- }
- $journal|ConvertTo-Json -Depth 3|Set-Content -LiteralPath (Join-Path $backup 'journal.json') -Encoding UTF8
- # Do not interrupt an unknown or already unhealthy runtime.
- $status=(& $tunnel runtimes status ecoagent|Out-String)
- if($LASTEXITCODE -ne 0 -or $status -notmatch '\bready\b'){throw 'Existing tunnel not ready; manual inspection required'}
- & $tunnel runtimes stop ecoagent
- if($LASTEXITCODE -ne 0){throw 'Cannot stop existing runtime'}
- $stopped=$true;$changed=$true
- & powershell.exe -NoProfile -File (Join-Path $root 'actualizar-ecoagent.ps1') -Commit $Commit
- if($LASTEXITCODE -ne 0){throw 'Source updater failed'}
- foreach($r in $roots){
-  Push-Location $r
-  try{
-   $n=Join-Path $r 'tools\node-v22.23.5-win-x64\node.exe'
-   & $n --test test/*.test.mjs cloud/*.test.mjs connector/*.test.mjs gateway/*.test.mjs
-   if($LASTEXITCODE -ne 0){throw "Unit tests failed: $r"}
-   & $n connector/desktop.integration.mjs
-   if($LASTEXITCODE -ne 0){throw "MCP smoke failed: $r"}
-  }finally{Pop-Location}
- }
- Start-Ecoagent
- $success=$true
-}catch{
- $failure=$_.Exception.Message
- if($changed){
-  # Stop any newly launched process before restoring source.
-  & $tunnel runtimes stop ecoagent|Out-Null
-  foreach($j in $journal){
-   if($j.existed){Copy-Item -LiteralPath $j.saved -Destination $j.dest -Force}
-   elseif(Test-Path -LiteralPath $j.dest -PathType Leaf){Remove-Item -LiteralPath $j.dest -Force}
-  }
-  if($stopped){Start-Ecoagent}
- }
- throw "Update failed: $failure. Backup retained: $backup"
-}finally{
- if($null -eq $priorKey){Remove-Item Env:CONTROL_PLANE_API_KEY -ErrorAction SilentlyContinue}else{$env:CONTROL_PLANE_API_KEY=$priorKey}
- if($success){Remove-Item -LiteralPath $backup -Recurse -Force}
-}
-){throw 'Existing ecoagent alias not found'}
-$tunnelId=$Matches[1]
-foreach($r in $roots){if(!(Test-Path $r -PathType Container)){throw "Missing drive: $r"}}
-foreach($p in @(8790,8791,8080,8081,8082)){if(Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue){throw "Other ECOAGENT service active on $p"}}
-$rev=Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/commits/$Commit" -Headers $headers -TimeoutSec 30
-if($rev.sha -ne $Commit){throw 'Revision mismatch'}
-$tree=Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/git/trees/$($rev.commit.tree.sha)?recursive=1" -Headers $headers -TimeoutSec 30
-if($tree.truncated){throw 'Incomplete tree'}
-$entries=@($tree.tree|Where-Object {$_.type -eq 'blob' -and $_.mode -eq '100644' -and $_.path -match '^(?:(?:cloud|connector|gateway|docs|extension|scripts|test)/[A-Za-z0-9_./-]+|[A-Za-z0-9_-]+\.(?:mjs|js|css|html|ps1|md|json))$' -and $_.path -notmatch '(^|/)\.\.?(/|$)'})
-if($entries.Count -lt 30 -or $entries.Count -gt 500){throw 'Unexpected source list'}
-$backup=Join-Path $root ('.release-backup-'+[guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $backup|Out-Null
-$journal=New-Object 'System.Collections.Generic.List[object]'
-$changed=$false;$stopped=$false;$success=$false
-$priorKey=[Environment]::GetEnvironmentVariable('CONTROL_PLANE_API_KEY','Process')
-function Start-Ecoagent {
- & $tunnel runtimes connect --alias ecoagent --tunnel-id $tunnelId --profile ecoagent --profile-dir $profileDir --runtime-api-key 'env:CONTROL_PLANE_API_KEY' --mcp-command 'D:/ECOAGENT/tools/node-v22.23.5-win-x64/node.exe D:/ECOAGENT/connector/desktop.mjs'
- if($LASTEXITCODE -ne 0){throw 'Tunnel connect failed'}
- $status=(& $tunnel runtimes status ecoagent|Out-String)
- if($LASTEXITCODE -ne 0 -or $status -notmatch '\bready\b'){throw 'Tunnel not ready'}
-}
-try{
- $line=Get-Content (Join-Path $root '.env.local')|Where-Object {$_ -match '^\s*CONTROL_PLANE_API_KEY\s*='}|Select-Object -First 1
- if(!$line){throw 'Existing runtime credential missing'}
- $env:CONTROL_PLANE_API_KEY=($line -split '=',2)[1].Trim().Trim('"').Trim("'")
- if(!$env:CONTROL_PLANE_API_KEY){throw 'Empty runtime credential'}
- # Preserve only tracked source paths targeted by the existing verified updater.
- foreach($r in $roots){
-  foreach($e in $entries){
-   $dest=Join-Path $r $e.path
-   $saved=Join-Path (Join-Path $backup $r.Substring(0,1)) $e.path
-   $exists=Test-Path -LiteralPath $dest -PathType Leaf
-   if($exists){New-Item -ItemType Directory -Force -Path (Split-Path $saved -Parent)|Out-Null;Copy-Item -LiteralPath $dest -Destination $saved}
-   $journal.Add([pscustomobject]@{dest=$dest;saved=$saved;existed=$exists})
-  }
- }
- $journal|ConvertTo-Json -Depth 3|Set-Content -LiteralPath (Join-Path $backup 'journal.json') -Encoding UTF8
- # Do not interrupt an unknown or already unhealthy runtime.
- $status=(& $tunnel runtimes status ecoagent|Out-String)
- if($LASTEXITCODE -ne 0 -or $status -notmatch '\bready\b'){throw 'Existing tunnel not ready; manual inspection required'}
- & $tunnel runtimes stop ecoagent
- if($LASTEXITCODE -ne 0){throw 'Cannot stop existing runtime'}
- $stopped=$true;$changed=$true
- & powershell.exe -NoProfile -File (Join-Path $root 'actualizar-ecoagent.ps1') -Commit $Commit
- if($LASTEXITCODE -ne 0){throw 'Source updater failed'}
- foreach($r in $roots){
-  Push-Location $r
-  try{
-   $n=Join-Path $r 'tools\node-v22.23.5-win-x64\node.exe'
-   & $n --test test/*.test.mjs cloud/*.test.mjs connector/*.test.mjs gateway/*.test.mjs
-   if($LASTEXITCODE -ne 0){throw "Unit tests failed: $r"}
-   & $n connector/desktop.integration.mjs
-   if($LASTEXITCODE -ne 0){throw "MCP smoke failed: $r"}
-  }finally{Pop-Location}
- }
- Start-Ecoagent
- $success=$true
-}catch{
- $failure=$_.Exception.Message
- if($changed){
-  # Stop any newly launched process before restoring source.
-  & $tunnel runtimes stop ecoagent|Out-Null
-  foreach($j in $journal){
-   if($j.existed){Copy-Item -LiteralPath $j.saved -Destination $j.dest -Force}
-   elseif(Test-Path -LiteralPath $j.dest -PathType Leaf){Remove-Item -LiteralPath $j.dest -Force}
-  }
-  if($stopped){Start-Ecoagent}
- }
- throw "Update failed: $failure. Backup retained: $backup"
-}finally{
- if($null -eq $priorKey){Remove-Item Env:CONTROL_PLANE_API_KEY -ErrorAction SilentlyContinue}else{$env:CONTROL_PLANE_API_KEY=$priorKey}
- if($success){Remove-Item -LiteralPath $backup -Recurse -Force}
-}
-)][string]$Commit,[switch]$ConfirmIdle)
-$ErrorActionPreference='Stop'
-$root='D:\ECOAGENT'
-$roots=@($root,'F:\ECOAGENT')
-$repo='FUNDACIONECOPIENSAEVOLUTION/ECOAGENT-Open-Source-Browser-Automation'
-$headers=@{'User-Agent'='ECOAGENT-release-updater'}
-$tunnel=Join-Path $root 'tools\tunnel-client\tunnel-client.exe'
-$profileDir=Join-Path $root 'local-config\tunnel-profiles'
-$node=Join-Path $root 'tools\node-v22.23.5-win-x64\node.exe'
-$tunnelId='tunnel_6b08db5b62388191acf166acd8275d9b'
-foreach($r in $roots){if(!(Test-Path $r -PathType Container)){throw "Missing drive: $r"}}
-foreach($p in @(8790,8791,8080,8081,8082)){if(Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue){throw "Other ECOAGENT service active on $p"}}
-$rev=Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/commits/$Commit" -Headers $headers -TimeoutSec 30
-if($rev.sha -ne $Commit){throw 'Revision mismatch'}
-$tree=Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/git/trees/$($rev.commit.tree.sha)?recursive=1" -Headers $headers -TimeoutSec 30
-if($tree.truncated){throw 'Incomplete tree'}
-$entries=@($tree.tree|Where-Object {$_.type -eq 'blob' -and $_.mode -eq '100644' -and $_.path -match '^(?:(?:cloud|connector|gateway|docs|extension|scripts|test)/[A-Za-z0-9_./-]+|[A-Za-z0-9_-]+\.(?:mjs|js|css|html|ps1|md|json))$' -and $_.path -notmatch '(^|/)\.\.?(/|$)'})
-if($entries.Count -lt 30 -or $entries.Count -gt 500){throw 'Unexpected source list'}
-$backup=Join-Path $root ('.release-backup-'+[guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $backup|Out-Null
-$journal=New-Object 'System.Collections.Generic.List[object]'
-$changed=$false;$stopped=$false;$success=$false
-$priorKey=[Environment]::GetEnvironmentVariable('CONTROL_PLANE_API_KEY','Process')
-function Start-Ecoagent {
- & $tunnel runtimes connect --alias ecoagent --tunnel-id $tunnelId --profile ecoagent --profile-dir $profileDir --runtime-api-key 'env:CONTROL_PLANE_API_KEY' --mcp-command 'D:/ECOAGENT/tools/node-v22.23.5-win-x64/node.exe D:/ECOAGENT/connector/desktop.mjs'
- if($LASTEXITCODE -ne 0){throw 'Tunnel connect failed'}
- $status=(& $tunnel runtimes status ecoagent|Out-String)
- if($LASTEXITCODE -ne 0 -or $status -notmatch '\bready\b'){throw 'Tunnel not ready'}
-}
-try{
- $line=Get-Content (Join-Path $root '.env.local')|Where-Object {$_ -match '^\s*CONTROL_PLANE_API_KEY\s*='}|Select-Object -First 1
- if(!$line){throw 'Existing runtime credential missing'}
- $env:CONTROL_PLANE_API_KEY=($line -split '=',2)[1].Trim().Trim('"').Trim("'")
- if(!$env:CONTROL_PLANE_API_KEY){throw 'Empty runtime credential'}
- # Preserve only tracked source paths targeted by the existing verified updater.
- foreach($r in $roots){
-  foreach($e in $entries){
-   $dest=Join-Path $r $e.path
-   $saved=Join-Path (Join-Path $backup $r.Substring(0,1)) $e.path
-   $exists=Test-Path -LiteralPath $dest -PathType Leaf
-   if($exists){New-Item -ItemType Directory -Force -Path (Split-Path $saved -Parent)|Out-Null;Copy-Item -LiteralPath $dest -Destination $saved}
-   $journal.Add([pscustomobject]@{dest=$dest;saved=$saved;existed=$exists})
-  }
- }
- $journal|ConvertTo-Json -Depth 3|Set-Content -LiteralPath (Join-Path $backup 'journal.json') -Encoding UTF8
- # Do not interrupt an unknown or already unhealthy runtime.
- $status=(& $tunnel runtimes status ecoagent|Out-String)
- if($LASTEXITCODE -ne 0 -or $status -notmatch '\bready\b'){throw 'Existing tunnel not ready; manual inspection required'}
- & $tunnel runtimes stop ecoagent
- if($LASTEXITCODE -ne 0){throw 'Cannot stop existing runtime'}
- $stopped=$true;$changed=$true
- & powershell.exe -NoProfile -File (Join-Path $root 'actualizar-ecoagent.ps1') -Commit $Commit
- if($LASTEXITCODE -ne 0){throw 'Source updater failed'}
- foreach($r in $roots){
-  Push-Location $r
-  try{
-   $n=Join-Path $r 'tools\node-v22.23.5-win-x64\node.exe'
-   & $n --test test/*.test.mjs cloud/*.test.mjs connector/*.test.mjs gateway/*.test.mjs
-   if($LASTEXITCODE -ne 0){throw "Unit tests failed: $r"}
-   & $n connector/desktop.integration.mjs
-   if($LASTEXITCODE -ne 0){throw "MCP smoke failed: $r"}
-  }finally{Pop-Location}
- }
- Start-Ecoagent
- $success=$true
-}catch{
- $failure=$_.Exception.Message
- if($changed){
-  # Stop any newly launched process before restoring source.
-  & $tunnel runtimes stop ecoagent|Out-Null
-  foreach($j in $journal){
-   if($j.existed){Copy-Item -LiteralPath $j.saved -Destination $j.dest -Force}
-   elseif(Test-Path -LiteralPath $j.dest -PathType Leaf){Remove-Item -LiteralPath $j.dest -Force}
-  }
-  if($stopped){Start-Ecoagent}
- }
- throw "Update failed: $failure. Backup retained: $backup"
-}finally{
- if($null -eq $priorKey){Remove-Item Env:CONTROL_PLANE_API_KEY -ErrorAction SilentlyContinue}else{$env:CONTROL_PLANE_API_KEY=$priorKey}
- if($success){Remove-Item -LiteralPath $backup -Recurse -Force}
+ $lock.Dispose()
 }

@@ -35,3 +35,18 @@ jobs:
           npm install --ignore-scripts
           npx playwright install --with-deps chromium
           ECOAGENT_TEST_DIAGNOSTICS=1 PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" node connector/desktop.integration.mjs --fixture
+  powershell-syntax:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse PowerShell source
+        shell: pwsh
+        run: |
+          $bad = @()
+          Get-ChildItem -Path . -Recurse -Filter *.ps1 -File | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors) | Out-Null
+            if ($errors.Count) { $bad += $errors; Write-Host $_.FullName; $errors | Out-String | Write-Host }
+          }
+          if ($bad.Count) { throw 'PowerShell syntax validation failed' }
