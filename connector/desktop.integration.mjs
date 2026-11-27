@@ -25,8 +25,13 @@ try{
   const blockedClick=await call('ecoagent_click_demo',{session:a.session,snapshot:a.snapshot,element:nextDraft.id});
   assert.equal(blockedClick.blocked,true);
   const project=a.elements.find(e=>e.label==='Project');
-  assert.equal((await call('ecoagent_live_verify',{session:a.session,snapshot:a.snapshot,element:project.id,value:'Synthetic project'})).matches,true);
-  assert.equal((await call('ecoagent_live_verify',{session:a.session,snapshot:a.snapshot,element:project.id,value:'Wrong value'})).matches,false);
+  const stale=await client.callTool({name:'ecoagent_live_draft',arguments:{session:a.session,snapshot:'00000000-0000-4000-8000-000000000000',element:project.id,value:'Must not overwrite'}});
+  assert.equal(stale.isError,true);
+  a=await call('ecoagent_live_inspect',{session:a.session});
+  const recovered=a.elements.find(e=>e.label==='Project');
+  assert.equal((await call('ecoagent_live_verify',{session:a.session,snapshot:a.snapshot,element:recovered.id,value:'Synthetic project'})).matches,true);
+  assert.equal((await call('ecoagent_live_verify',{session:a.session,snapshot:a.snapshot,element:recovered.id,value:'Synthetic project'})).matches,true);
+  assert.equal((await call('ecoagent_live_verify',{session:a.session,snapshot:a.snapshot,element:recovered.id,value:'Wrong value'})).matches,false);
   const category=a.elements.find(e=>e.label==='Category');assert.ok(category?.draft,JSON.stringify(a.elements));
   a=await call('ecoagent_live_draft',{session:a.session,snapshot:a.snapshot,element:category.id,value:'Environment'});
   const selected=a.elements.find(e=>e.label==='Category');

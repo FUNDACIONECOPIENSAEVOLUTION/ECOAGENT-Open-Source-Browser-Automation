@@ -9,12 +9,12 @@ import {discover,validateDiscovery} from './desktop-discovery.mjs';
 import {createSessions} from './desktop-sessions.mjs';
 import {createLive} from './desktop-live.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.30.1'});
+const server=new McpServer({name:'ecoagent-local',version:'0.30.2'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.30.1',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.30.2',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -42,7 +42,7 @@ server.tool('ecoagent_follow','Follow an exact same-origin link from the current
 server.tool('ecoagent_close','Close a temporary navigation snapshot session.',{session:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session})=>exclusive(()=>sessions.close(session)));
 // Set before lazy Playwright import; keep existing installed browser location.
 process.env.PLAYWRIGHT_BROWSERS_PATH ||= join(root,'tools','browsers');
-const live=createLive(root);
+const live=createLive(root,{onClose:id=>control.sessionClosed(id)});
 const liveRef={session:sessionId,snapshot:z.string().uuid(),element:z.string().uuid()};
 server.tool('ecoagent_live_open','Open one temporary persistent anonymous public browser on an approved origin. No login, submission or writes.',{url:z.string().url().max(2048)},{readOnlyHint:true,openWorldHint:true},async({url})=>exclusive(()=>live.open(url)));
 server.tool('ecoagent_live_demo','Open an offline synthetic form for testing draft interaction. No external requests or submission.',{},{readOnlyHint:true,openWorldHint:false},async()=>exclusive(()=>live.open('',true)));
