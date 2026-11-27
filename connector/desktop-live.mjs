@@ -22,11 +22,13 @@ export function createLive(root,{ttl=300000}={}){
    for(const handle of nodes.slice(0,150)){
     if(fields.length>=60||!await handle.isVisible().catch(()=>false))continue;
     const info=await handle.evaluate(e=>({tag:e.tagName.toLowerCase(),type:e.type||'',name:e.name||'',label:e.getAttribute('aria-label')||Array.from(e.labels||[]).map(l=>{const copy=l.cloneNode(true);copy.querySelectorAll('input,textarea,select,button').forEach(n=>n.remove());return copy.textContent||''}).join(' ')||e.getAttribute('placeholder')||((e.tagName==='BUTTON'||e.tagName==='A')?e.innerText:'')||'',autocomplete:e.autocomplete||'',required:!!e.required,disabled:!!e.disabled,readOnly:!!e.readOnly,href:e.tagName==='A'?e.href:''})).catch(()=>null);
-    if(!info||sensitiveField(info))continue;
+    if(!info)continue;
+    const attachment=(s.demo||s.draftMode)&&s.status===200&&info.tag==='input'&&info.type==='file'&&!info.disabled;
+    if(!attachment&&sensitiveField(info))continue;
     const id=randomUUID();let href=null;if(info.href)try{const u=readURL(info.href);if(u.origin===s.origin&&(!s.demo||u.href===fixtureNext||u.href===fixture))href=u.href}catch{}
     const draft=(s.demo||s.draftMode)&&canDraft(info)&&s.status===200;
     const toggle=(s.demo||s.draftMode)&&s.status===200&&info.tag==='input'&&['checkbox','radio'].includes(info.type)&&!info.disabled&&!info.readOnly;
-    s.refs.set(id,{handle,info,href});fields.push({id,tag:info.tag,type:info.type,label:String(info.label).replace(/\s+/g,' ').trim().slice(0,160),required:info.required,draft,toggle,follow:!!href});
+    s.refs.set(id,{handle,info,href});fields.push({id,tag:info.tag,type:info.type,label:String(info.label).replace(/\s+/g,' ').trim().slice(0,160),required:info.required,draft,toggle,attachment,follow:!!href});
    }
   }finally{for(const h of nodes)if(![...s.refs.values()].some(r=>r.handle===h))await h.dispose().catch(()=>{})}
   return {session:s.id,snapshot:s.snapshot,demo:s.demo,draftMode:s.draftMode,tab:s.tabs.indexOf(s.page)+1,url:s.page.url(),title:await s.page.title(),status:s.status,outcome:pageOutcome(s.status),text:(await s.page.locator('body').innerText({timeout:5000})).slice(0,5000),elements:fields};
@@ -77,6 +79,21 @@ export function createLive(root,{ttl=300000}={}){
   if(current.checked!==checked)await r.handle.click({timeout:5000});
   if(await r.handle.evaluate(e=>e.checked)!==checked)throw Error('Click did not set requested state');
   return {...await inspect(s),checked};
+ }),
+ attachmentTarget:(id,ref,element)=>run(id,async s=>{
+  if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Static draft required');
+  const r=findRef(ref,s.snapshot,s.refs,element);
+  if(r.info.tag!=='input'||r.info.type!=='file'||r.info.disabled||!await r.handle.evaluate(e=>e.isConnected&&e.type==='file'&&!e.disabled))throw Error('Invalid file input');
+  return {session:s.id,snapshot:s.snapshot,element,url:s.page.url(),tab:s.tabs.indexOf(s.page)+1,label:String(r.info.label).trim().slice(0,160)};
+ }),
+ attachDocument:(id,ref,element,document)=>run(id,async s=>{
+  if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Static draft required');
+  const r=findRef(ref,s.snapshot,s.refs,element);
+  if(r.info.tag!=='input'||r.info.type!=='file'||r.info.disabled||!await r.handle.evaluate(e=>e.isConnected&&e.type==='file'&&!e.disabled))throw Error('Invalid file input');
+  await r.handle.setInputFiles({name:document.name,mimeType:document.mimeType,buffer:document.buffer},{timeout:10000});
+  const f=await r.handle.evaluate(e=>({count:e.files.length,name:e.files[0]?.name,size:e.files[0]?.size}));
+  if(f.count!==1||f.name!==document.name||f.size!==document.size)throw Error('Attachment mismatch');
+  return {attached:true,submitted:false,document:document.id,name:f.name,size:f.size,sha256:document.sha256};
  }),
  attachDemo:(id)=>run(id,async s=>{
   if(!s.demo||s.page.url()!==fixture)throw Error('Offline demo form required');
