@@ -1,0 +1,3 @@
+# ECOAGENT v0.35.0 — independent browser sessions
+
+Adds bounded pool of four independent isolated Chromium instances, each using existing approved-origin network restrictions and per-session tab ceiling. ChatGPT can list and select sessions; closing or expiring one does not destroy another. MCP operations remain serialized, not simultaneous execution. Current UI observes selected session only; native GUI and focus behavior require Windows testing. Four sessions is a resource limit, not proof of 320-tab capacity. External writes, authentication and real uploads remain disabled; no document generation. Tests include two independent offline browsers. CI and installation pending.
