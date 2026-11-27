@@ -99,7 +99,10 @@ try{
    if((Blob $dest) -ne $e.sha){throw 'Copy hash mismatch'}
   }
   Push-Location $r
+  $previousBrowserPath=$env:PLAYWRIGHT_BROWSERS_PATH
   try{
+   $env:PLAYWRIGHT_BROWSERS_PATH=Join-Path $r 'tools\browsers'
+   if(!(Test-Path -LiteralPath $env:PLAYWRIGHT_BROWSERS_PATH -PathType Container)){throw "Portable browser directory missing: $r"}
    $n=Join-Path $r 'tools\node-v22.23.5-win-x64\node.exe'
    & $n --test test/*.test.mjs cloud/*.test.mjs connector/*.test.mjs gateway/*.test.mjs
    if($LASTEXITCODE -ne 0){throw "Unit tests failed: $r"}
@@ -107,7 +110,7 @@ try{
    if($LASTEXITCODE -ne 0){throw "MCP browser fixture failed: $r"}
    & $n connector/document-browser.integration.mjs
    if($LASTEXITCODE -ne 0){throw "Document/submission/receipt integration failed: $r"}
-  }finally{Pop-Location}
+  }finally{[Environment]::SetEnvironmentVariable('PLAYWRIGHT_BROWSERS_PATH',$previousBrowserPath,'Process');Pop-Location}
  }
  if($EnableVisibleBrowser){$env:ECOAGENT_VISIBLE_BROWSER='1'}
  if($EnableApprovalUI){$env:ECOAGENT_ENABLE_APPROVAL_UI='1'}
