@@ -7,7 +7,7 @@
 - Pruebas adicionales de guardas de navegación, persistencia de referencias y acceso local al panel.
 
 ## Estados independientes y límites
-- Código: propuesto v0.30.1; verificar commit y resultado de CI.
+- Código: v0.30.1 integrado en `main` (commit `68a4172113408cad617690d610fa1181607fa180`); validación automatizada de la rama aprobada.
 - Instalación Windows: última versión confirmada v0.23.2. No asumir despliegue de esta corrección.
 - Descubrimiento de MCP en ChatGPT Web: 2 herramientas expuestas en el último diagnóstico frente a 35 registradas en código.
 - Conexión real: última prueba `ecoagent_local_health` devolvió `Session terminated`; debe repetirse después de iniciar el túnel.
@@ -21,3 +21,6 @@
 5. Implementar y validar por origen flujos dinámicos y autenticación humana separados de los borradores estáticos, con permisos explícitos antes de enviar y con comprobante del proveedor.
 
 Nunca adjuntar el proyecto macro ni credenciales ni sesiones. El portal Pages no ejecuta el navegador.
+
+## Diagnóstico local seguro
+Ejecutar `powershell -NoProfile -File D:\\ECOAGENT\\scripts\\diagnose-ecoagent.ps1` desde Windows. El script imprime un JSON sin claves ni identificadores privados. El resultado debe compararse con el último estado del conector, sin confundir registro de herramientas con su exposición en ChatGPT Web. No inicia ni instala el túnel por sí mismo.

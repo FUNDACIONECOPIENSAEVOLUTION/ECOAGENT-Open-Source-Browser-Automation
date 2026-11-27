@@ -5,6 +5,8 @@ El conector MCP nativo tiene código **v0.30.1** y 35 herramientas registradas; 
 
 El [informe de continuidad v0.30.1](docs/desktop-0301.md) separa el estado del código de las pruebas, despliegue y uso real.
 
+Para diagnosticar el equipo Windows sin divulgar secretos, ejecute en PowerShell desde `D:\\ECOAGENT` el script de [diagnóstico seguro](scripts/diagnose-ecoagent.ps1): `powershell -NoProfile -File .\\scripts\\diagnose-ecoagent.ps1`. No actualiza, instala ni detiene el navegador.
+
 ---
 
 ## Motor REST histórico (v0.1.0 experimental)
