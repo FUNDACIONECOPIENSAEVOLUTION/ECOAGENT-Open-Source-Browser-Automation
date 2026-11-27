@@ -1,0 +1,2 @@
+# Document acceptance
+Adds loopback HTTP boundary tests and a Chromium integration with a 20 MiB synthetic file, one-time local approval and attachment. Tests use an ephemeral loopback port and call internal modules, not the remote MCP tool chain or actual human browser clicks. No external submission or user files. Existing version remains 0.28.0; this revision is an acceptance-test improvement, not a new installed release. External forms and remote discovery remain pending.

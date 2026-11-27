@@ -4,7 +4,7 @@ import {maxDocumentBytes} from './document-vault.mjs';
 export async function startApprovalUI(approvals,{port=8793,vault}={}){
  const token=randomBytes(24).toString('hex');
  const host='127.0.0.1';
- const origin='http://'+host+':'+port;
+ let origin='http://'+host+':'+port;
  const path='/approval/'+token;
  const html=String.raw`<!doctype html><html lang="es"><meta charset="utf-8"><title>ECOAGENT autorizaciones locales</title><style>body{font:16px system-ui;max-width:720px;margin:40px auto;padding:16px}article{border:1px solid #aaa;padding:16px;margin:12px 0}button{padding:10px;margin-right:10px}small{display:block;color:#555}</style><h1>Autorizaciones ECOAGENT</h1><p>Solo pruebas con documentos sintéticos. Revisa cada acción antes de autorizar. No se realizan envíos externos.</p><section><h2>Documentos locales</h2><p>Selecciona archivos que deseas preparar en el navegador. No se envían a ninguna institución.</p><input id="file" type="file" accept=".pdf,.docx,.xlsx,.pptx,.txt,.png,.jpg,.jpeg"><button id="add">Incorporar archivo</button><p id="fileStatus"></p><ul id="docs"></ul></section><main></main><script>
 const base=location.pathname;const main=document.querySelector('main');
@@ -17,7 +17,7 @@ refresh();docs();setInterval(refresh,2000);
   res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('Referrer-Policy','no-referrer');
   res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'");
   const send=(status,value,type='application/json')=>{res.writeHead(status,{'Content-Type':type});res.end(type==='application/json'?JSON.stringify(value):value)};
-  if(req.headers.host!==host+':'+port)return send(403,{error:'Host denied'});
+  if(req.headers.host!==new URL(origin).host)return send(403,{error:'Host denied'});
   if(req.method==='GET'&&req.url===path)return send(200,html,'text/html; charset=utf-8');
   if(req.method==='GET'&&req.url===path+'/list')return send(200,approvals.list());
   if(vault&&req.method==='GET'&&req.url===path+'/documents')return send(200,vault.list());
@@ -38,5 +38,6 @@ refresh();docs();setInterval(refresh,2000);
  });
  server.requestTimeout=5000;server.headersTimeout=5000;
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,host,resolve)});
+ origin='http://'+host+':'+server.address().port;
  server.unref();return {url:origin+path,close:()=>new Promise(resolve=>server.close(resolve))};
 }
