@@ -14,8 +14,16 @@ export function createLive(root,{ttl=300000}={}){
  async function close(){const s=session;session=null;if(s){clearTimeout(s.timer);await s.browser.close().catch(()=>{})}return {closed:!!s}}
  function arm(s){clearTimeout(s.timer);s.timer=setTimeout(()=>{if(session===s&&!s.active)void close();else if(session===s)arm(s)},ttl);s.timer.unref()}
  function lookup(id){if(!session||session.id!==id)throw Error('Unknown live session');return session}
+ async function assertSafePage(s){
+  if(s.demo)return;
+  const u=readURL(s.page.url());
+  if(u.origin!==s.origin)throw Error('Origin changed');
+  for(const frame of s.page.frames()){
+   if(await frame.locator('input[type=password],input[autocomplete=one-time-code]').count())throw Error('Authentication screen; manual access required');
+  }
+ }
  async function inspect(s){
-  if(!s.demo){const u=readURL(s.page.url());if(u.origin!==s.origin)throw Error('Origin changed');for(const frame of s.page.frames()){if(await frame.locator('input[type=password],input[autocomplete=one-time-code]').count())throw Error('Authentication screen; manual access required')}}
+  await assertSafePage(s);
   for(const r of s.refs.values())await r.handle.dispose().catch(()=>{});s.refs.clear();s.snapshot=randomUUID();
   const fields=[];const nodes=await s.page.locator('input,textarea,select,button,a[href]').elementHandles();
   try{
@@ -80,7 +88,13 @@ export function createLive(root,{ttl=300000}={}){
   if(!r)return {...await inspect(s),history:direction,navigationConfirmed:false,submitted:false};
   return {...await recordNavigation(s,r),history:direction,navigationConfirmed:true,submitted:false};
  }),
- follow:(id,ref,element)=>run(id,async s=>{const r=findRef(ref,s.snapshot,s.refs,element);if(!r.href||s.status!==200)throw Error('Only approved links');return navigate(s,r.href)}),
+ follow:(id,ref,element)=>run(id,async s=>{
+  const r=findRef(ref,s.snapshot,s.refs,element);
+  if(!r.href||s.status!==200)throw Error('Only approved links');
+  const blocked=await navigationGuard(s,false);
+  if(blocked)return blocked;
+  return navigate(s,r.href);
+ }),
  fill:(id,ref,element,value)=>run(id,async s=>{if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Draft mode required');const r=findRef(ref,s.snapshot,s.refs,element);validateDraft(r.info,value);if(!await r.handle.evaluate(e=>e.isConnected&&!e.disabled&&!e.readOnly))throw Error('Field changed');if(r.info.tag==='select')await r.handle.selectOption({label:value},{timeout:5000});else await r.handle.fill(value,{timeout:5000});return inspect(s)}),
  tabs:(id)=>run(id,async s=>({session:s.id,tabs:await Promise.all(s.tabs.map(async(p,i)=>({tab:i+1,active:p===s.page,url:p.url(),title:await p.title()})))})),
  newTab:(id,ref,element)=>run(id,async s=>{
@@ -93,6 +107,8 @@ export function createLive(root,{ttl=300000}={}){
   if(!s.demo)throw Error('Button click restricted to offline demo');
   const r=findRef(ref,s.snapshot,s.refs,element);
   if(r.info.tag!=='a'||!r.href)throw Error('Only offline navigation link clicks; submit disabled');
+  const blocked=await navigationGuard(s,false);
+  if(blocked)return blocked;
   await Promise.all([s.page.waitForURL(r.href,{timeout:5000}),r.handle.click({timeout:5000})]);s.status=200;s.statuses.set(s.page,200);return inspect(s);
  }),
  toggle:(id,ref,element,checked)=>run(id,async s=>{
@@ -142,7 +158,7 @@ export function createLive(root,{ttl=300000}={}){
  }),
  preview:(id)=>run(id,async s=>{
   if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Static draft mode required');
-  if(!s.demo)await inspect(s);
+  await assertSafePage(s);
   const bytes=await s.page.screenshot({type:'jpeg',quality:50,timeout:5000,mask:[s.page.locator('input,textarea,select,[contenteditable],iframe')],maskColor:'#777777'});
   if(bytes.length>512000)throw Error('Preview too large');
   return {data:bytes.toString('base64'),mimeType:'image/jpeg',sha256:createHash('sha256').update(bytes).digest('hex')};

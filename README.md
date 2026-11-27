@@ -1,4 +1,13 @@
-# ECOAGENT Direct Engine — v0.1.0 experimental
+# ECOAGENT — navegador y conector nativo para ChatGPT Web
+
+## Estado del proyecto (27 de noviembre de 2026)
+El conector MCP nativo tiene código **v0.30.1** y 35 herramientas registradas; el motor Windows no debe considerarse actualizado hasta comprobar instalación, túnel y descubrimiento real desde ChatGPT. En la última comprobación, el túnel respondió `Session terminated` y ChatGPT exponía solo dos herramientas: por tanto, **no hay conexión operativa demostrada**. Se corrigieron referencias de vista previa y pérdidas silenciosas al seguir enlaces con cambios pendientes; esta corrección requiere validación CI y actualización local. La carga de documentos actual solo prepara borradores estáticos; no constituye envío ni postulación.
+
+El [informe de continuidad v0.30.1](docs/desktop-0301.md) separa el estado del código de las pruebas, despliegue y uso real.
+
+---
+
+## Motor REST histórico (v0.1.0 experimental)
 
 Motor local de automatización web de Fundación Ecopiensa Evolution. API HTTP JSON por lotes, sin MCP obligatorio ni API comercial de IA. Esta versión es un controlador de navegador, **no un agente autónomo completo**.
 

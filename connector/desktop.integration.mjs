@@ -17,6 +17,13 @@ try{
   const call=async(name,args)=>{const r=await client.callTool({name,arguments:args},undefined,{timeout:45000});assert.equal(r.isError??false,false,name+': '+JSON.stringify(r.content));return JSON.parse(r.content[0].text)};
   let a=await call('ecoagent_live_demo',{});const field=a.elements.find(e=>e.label==='Project');assert.ok(field?.draft,JSON.stringify(a.elements));assert.ok(!a.elements.some(e=>e.type==='password'));
   a=await call('ecoagent_live_draft',{session:a.session,snapshot:a.snapshot,element:field.id,value:'Synthetic project'});
+  const nextDraft=a.elements.find(e=>e.label==='Next page');
+  assert.ok(nextDraft?.follow);
+  const blockedFollow=await call('ecoagent_live_follow',{session:a.session,snapshot:a.snapshot,element:nextDraft.id});
+  assert.equal(blockedFollow.blocked,true);
+  assert.equal(blockedFollow.reason,'unsaved_draft');
+  const blockedClick=await call('ecoagent_click_demo',{session:a.session,snapshot:a.snapshot,element:nextDraft.id});
+  assert.equal(blockedClick.blocked,true);
   const project=a.elements.find(e=>e.label==='Project');
   assert.equal((await call('ecoagent_live_verify',{session:a.session,snapshot:a.snapshot,element:project.id,value:'Synthetic project'})).matches,true);
   assert.equal((await call('ecoagent_live_verify',{session:a.session,snapshot:a.snapshot,element:project.id,value:'Wrong value'})).matches,false);
@@ -31,6 +38,9 @@ try{
   const attachment=await call('ecoagent_attach_demo',{session:a.session});assert.equal(attachment.attached,true);assert.equal(attachment.submitted,false);
   const download=await call('ecoagent_download_demo',{session:a.session});assert.equal(download.downloaded,true);assert.equal(download.sha256,attachment.sha256);
   const preview=await client.callTool({name:'ecoagent_preview',arguments:{session:a.session}},undefined,{timeout:45000});assert.equal(preview.isError??false,false);assert.equal(preview.content[0].type,'image');
+  // Preview must never invalidate current element IDs. This matters in static public draft mode.
+  const liveProject=a.elements.find(e=>e.label==='Project');
+  assert.equal((await call('ecoagent_live_verify',{session:a.session,snapshot:a.snapshot,element:liveProject.id,value:'Synthetic project'})).matches,true);
   a=await call('ecoagent_live_inspect',{session:a.session});
   const next=a.elements.find(e=>e.label==='Next page');assert.ok(next?.follow);
   const second=await call('ecoagent_new_tab',{session:a.session,snapshot:a.snapshot,element:next.id});assert.equal(second.title,'Second page');
