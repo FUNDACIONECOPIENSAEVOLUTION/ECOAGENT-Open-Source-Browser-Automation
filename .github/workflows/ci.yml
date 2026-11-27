@@ -30,3 +30,8 @@ jobs:
           node sdk.integration.mjs
           node http.integration.mjs
           node desktop.integration.mjs
+      - name: Install browser and execute offline form integration
+        run: |
+          npm install --ignore-scripts
+          npx playwright install --with-deps chromium
+          PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" node connector/desktop.integration.mjs --fixture

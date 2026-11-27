@@ -9,10 +9,10 @@ import {discover,validateDiscovery} from './desktop-discovery.mjs';
 import {createSessions} from './desktop-sessions.mjs';
 import {createLive} from './desktop-live.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.22.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.23.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.22.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.23.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -47,4 +47,10 @@ server.tool('ecoagent_live_inspect','Inspect visible elements in the current tem
 server.tool('ecoagent_live_follow','Navigate to an approved same-origin link from the current live snapshot. No arbitrary click.',liveRef,{readOnlyHint:true,openWorldHint:true},async({session,snapshot,element})=>exclusive(()=>live.follow(session,snapshot,element)));
 server.tool('ecoagent_live_draft','Fill or select a field ONLY in the offline synthetic form. No real-site writes or submission.',{...liveRef,value:z.string().max(2000)},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session,snapshot,element,value})=>exclusive(()=>live.fill(session,snapshot,element,value)));
 server.tool('ecoagent_live_close','Close the temporary live browser.',{session:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session})=>exclusive(()=>live.close(session)));
+server.tool('ecoagent_live_review','Review required-field completion in the offline synthetic form. Returns validation flags, never field values. No submission.',{session:sessionId},{readOnlyHint:true,openWorldHint:false},async({session})=>exclusive(()=>live.review(session)));
+server.tool('ecoagent_live_verify','Compare an expected synthetic field value to the current offline demo field. Returns a boolean only.',{...liveRef,value:z.string().max(2000)},{readOnlyHint:true,openWorldHint:false},async({session,snapshot,element,value})=>exclusive(()=>live.verify(session,snapshot,element,value)));
+server.tool('ecoagent_live_capture','Return a screenshot of the offline synthetic demo only. Do not use private data in the demo.',{session:sessionId},{readOnlyHint:true,openWorldHint:false},async({session})=>{
+ if(busy)return {isError:true,...result({error:'Busy'})};busy=true;
+ try{const c=await live.capture(session);return {content:[{type:'image',data:c.data,mimeType:c.mimeType},{type:'text',text:JSON.stringify({sha256:c.sha256,demo:true})}]}}catch{return {isError:true,...result({error:'Capture failed or unavailable outside demo'})}}finally{busy=false}
+});
 await server.connect(new StdioServerTransport());
