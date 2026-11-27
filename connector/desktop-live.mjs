@@ -3,12 +3,14 @@ import {readURL,requestAllowed,pageOutcome} from './desktop-policy.mjs';
 import {canDraft,validateDraft,findRef,StaleReferenceError} from './desktop-live-policy.mjs';
 import {sensitiveField} from '../privacy.mjs';
 import {createHash} from 'node:crypto';
+import {createPostPermit} from './submission-permit.mjs';
 const fixture='https://example.org/ecoagent-local-fixture';
 const fixtureNext=fixture+'/next';
 const fixtureDownload=fixture+'/document.txt';
+const fixtureSubmit=fixture+'/submit';
 const sampleDocument=Buffer.from('ECOAGENT synthetic document for offline testing.\n','utf8');
 const sampleHash=createHash('sha256').update(sampleDocument).digest('hex');
-const html='<html><head><title>ECOAGENT local form fixture</title></head><body><h1>Draft only</h1><form><label>Project <input name="project" required></label><label>Summary <textarea name="summary"></textarea></label><label>Category <select name="category"><option>Research</option><option>Environment</option></select></label><label>Accept demo <input type="checkbox" name="demoConsent"></label><label>Sample document <input type="file" name="demoDocument" multiple></label><label>Password <input type="password" name="password"></label><button type="submit">Submit</button><a href="'+fixtureNext+'">Next page</a></form></body></html>';
+const html='<html><head><title>ECOAGENT local form fixture</title></head><body><h1>Draft only</h1><form method="post" enctype="multipart/form-data" action="'+fixtureSubmit+'"><label>Project <input name="project" required></label><label>Summary <textarea name="summary"></textarea></label><label>Category <select name="category"><option>Research</option><option>Environment</option></select></label><label>Accept demo <input type="checkbox" name="demoConsent"></label><label>Sample document <input type="file" name="demoDocument" multiple></label><label>Password <input type="password" name="password"></label><button type="submit">Submit</button><a href="'+fixtureNext+'">Next page</a></form></body></html>';
 const dynamicHTML='<html><head><title>ECOAGENT dynamic fixture</title></head><body><form id="draft"><label>Project <input name="project" required></label><button type="button" id="expand">Add details</button><section id="details" hidden><label>Summary <textarea name="summary" required></textarea></label></section><button type="button" id="nextStage">Next stage</button><section id="budgetStage" hidden><label>Budget <input name="budget" type="number" min="1" required></label><button type="button" id="previousStage">Previous stage</button></section><button type="submit">Submit</button></form><script>document.getElementById("expand").addEventListener("click",()=>{document.getElementById("details").hidden=false});document.getElementById("nextStage").addEventListener("click",()=>{const f=document.getElementById("draft");const project=f.elements.project;const summary=f.elements.summary;if(!project.value.trim()||!summary.value.trim())return;document.getElementById("budgetStage").hidden=false;document.getElementById("details").hidden=true;project.closest("label").hidden=true;document.getElementById("expand").hidden=true;document.getElementById("nextStage").hidden=true});document.getElementById("previousStage").addEventListener("click",()=>{document.getElementById("budgetStage").hidden=true;document.getElementById("details").hidden=false;document.querySelector("[name=project]").closest("label").hidden=false;document.getElementById("expand").hidden=false;document.getElementById("nextStage").hidden=false});document.getElementById("draft").addEventListener("submit",e=>e.preventDefault());</script></body></html>';
 export const maxTabs=80;
 export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
@@ -64,6 +66,20 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
   if(changed&&!discard)return {blocked:true,reason:'unsaved_draft',changedFields:changed,session:s.id,snapshot:s.snapshot,submitted:false};
   return null;
  }
+ async function submissionPlan(s,ref,element){
+  await assertSafePage(s);
+  if(!s.draftMode&&!s.demo||s.dynamicDraft||s.dynamicDemo||s.status!==200)throw new StaleReferenceError('Static draft required');
+  const r=findRef(ref,s.snapshot,s.refs,element);
+  const f=await r.handle.evaluate(async e=>{
+   const form=e.form;if(!e.isConnected||e.disabled||e.type!=='submit'||!form||!form.checkValidity()||e.hasAttribute('formaction')||e.hasAttribute('formmethod')||e.hasAttribute('formenctype')||e.hasAttribute('formtarget')||form.noValidate||e.formNoValidate)return null;
+   if(form.target&&form.target!=='_self')return null;
+   const entries=[];for(const [key,value] of new FormData(form,e)){if(typeof value==='string')entries.push([key,value]);else{const hash=await crypto.subtle.digest('SHA-256',await value.arrayBuffer());entries.push([key,value.name,value.size,Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('')]);}}
+   const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(entries)));
+   return {action:form.action,method:form.method,enctype:form.enctype,fieldCount:entries.length,digest:Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('')};
+  });
+  if(!f||f.method!=='post'||!['multipart/form-data','application/x-www-form-urlencoded'].includes(f.enctype)||readURL(f.action).origin!==s.origin||(s.demo&&f.action!==fixtureSubmit))throw new StaleReferenceError('Unsupported submission target');
+  return {session:s.id,snapshot:s.snapshot,element,tab:s.tabs.indexOf(s.page)+1,url:s.page.url(),...f,demo:s.demo};
+ }
  async function run(id,fn){const s=lookup(id);s.active=true;try{return await fn(s)}catch(e){if(!(e instanceof StaleReferenceError))await close();throw e}finally{s.active=false;if(session===s)arm(s)}}
  return {
  async open(url,demo=false,draftMode=false,dynamicDemo=false,dynamicDraft=false){
@@ -75,6 +91,11 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
   try{
    const c=await browser.newContext({acceptDownloads:demo,serviceWorkers:'block',javaScriptEnabled:s.dynamicDemo||s.dynamicDraft||(!demo&&!draftMode)});
    await c.route('**/*',async r=>{
+    const req=r.request();
+    if(s.postPermit?.consume({url:req.url(),method:req.method(),main:req.isNavigationRequest()&&req.frame()===s.page.mainFrame()})){
+     if(demo){s.postStatus=200;return r.fulfill({status:200,contentType:'text/html',body:'<html><title>Synthetic receipt</title><body>OFFLINE TEST ONLY</body></html>'})}
+     try{const res=await r.fetch({maxRedirects:0,maxRetries:0,timeout:15000});try{s.postStatus=res.status();if(res.status()>=300&&res.status()<400)return r.fulfill({status:409,contentType:'text/plain',body:'Submission response redirect requires manual review'});return await r.fulfill({response:res})}finally{await res.dispose()}}catch{await r.abort().catch(()=>{});return}
+    }
     if(demo){if(r.request().url()===fixtureDownload&&r.request().method()==='GET')return r.fulfill({status:200,headers:{'content-type':'text/plain','content-disposition':'attachment; filename="ecoagent-demo.txt"'},body:sampleDocument});if([fixture,fixtureNext].includes(r.request().url())&&r.request().method()==='GET')return r.fulfill({status:200,contentType:'text/html',body:r.request().url()===fixture?(s.dynamicDemo?dynamicHTML:html):'<html><title>Second page</title><body>Offline navigation successful</body></html>'});return r.abort()}
     if(!requestAllowed(r.request().url(),s.origin,r.request().method()))return r.abort();
     if(s.draftMode){try{readURL(r.request().url())}catch{return r.abort()}}
@@ -217,6 +238,17 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
   })));
   if(files.length!==documents.length||files.some((f,i)=>f.name!==documents[i].name||f.size!==documents[i].size||f.sha256!==documents[i].sha256))throw Error('Attachment verification failed');
   return {attached:true,files,submitted:false,externalUploadConfirmed:false};
+ }),
+ submissionPlan:(id,ref,element)=>run(id,s=>submissionPlan(s,ref,element)),
+ submitForm:(id,ref,element,expected)=>run(id,async s=>{
+  const plan=await submissionPlan(s,ref,element);if(JSON.stringify(plan)!==JSON.stringify(expected))throw new StaleReferenceError('Form changed');
+  const r=findRef(ref,s.snapshot,s.refs,element);
+  s.postPermit=createPostPermit(plan.action);s.postStatus=null;
+  try{await r.handle.click({timeout:15000});await s.page.waitForLoadState('domcontentloaded',{timeout:15000})}catch{}finally{
+   const attempted=s.postPermit.used();s.postPermit=null;
+   s.lastSubmission={attempted,httpStatus:s.postStatus,confirmed:false,submitted:false,demo:s.demo,requiresReceiptReview:attempted};
+  }
+  return s.lastSubmission;
  }),
  attachDemo:(id)=>run(id,async s=>{
   if(!s.demo||s.page.url()!==fixture)throw Error('Offline demo form required');

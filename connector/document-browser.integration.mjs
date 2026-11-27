@@ -29,3 +29,5 @@ try{
 }finally{if(session)await live.close(session).catch(()=>{});await ui.close()}
 
 await import('./multi-attachment.integration.mjs');
+
+const submitLive=createLive(root);const initial=await submitLive.open('',true);try{const project=initial.elements.find(e=>e.label==='Project');const filled=await submitLive.fill(initial.session,initial.snapshot,project.id,'Synthetic submission');const button=filled.elements.find(e=>e.label==='Submit');const plan=await submitLive.submissionPlan(filled.session,filled.snapshot,button.id);const outcome=await submitLive.submitForm(filled.session,filled.snapshot,button.id,plan);assert.equal(outcome.attempted,true);assert.equal(outcome.httpStatus,200);assert.equal(outcome.confirmed,false);assert.equal(outcome.demo,true);console.log('OFFLINE ONE-SHOT POST OK')}finally{await submitLive.close(initial.session)}

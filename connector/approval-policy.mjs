@@ -5,7 +5,7 @@ export function createApprovals({clock=Date.now,ttl=120000,limit=8}={}){
  return {
  request({session,action,description,digest}){
   expire();
-  if(items.size>=limit||!['demo-attach','demo-download','document-attach'].includes(action)||typeof session!=='string'||!session||typeof description!=='string'||description.length>300||!(/^[a-f0-9]{64}$/).test(digest))throw Error('Invalid approval request');
+  if(items.size>=limit||!['demo-attach','demo-download','document-attach','form-submit'].includes(action)||typeof session!=='string'||!session||typeof description!=='string'||description.length>300||!(/^[a-f0-9]{64}$/).test(digest))throw Error('Invalid approval request');
   const id=randomUUID();const a={id,session,action,description,digest,expires:clock()+ttl,state:'pending'};items.set(id,a);return {...a};
  },
  list(){expire();return [...items.values()].map(a=>({...a}))},
