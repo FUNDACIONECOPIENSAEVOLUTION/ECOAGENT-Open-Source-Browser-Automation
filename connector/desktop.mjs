@@ -9,12 +9,12 @@ import {discover,validateDiscovery} from './desktop-discovery.mjs';
 import {createSessions} from './desktop-sessions.mjs';
 import {createLive} from './desktop-live.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.30.2'});
+const server=new McpServer({name:'ecoagent-local',version:'0.31.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.30.2',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.31.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -45,7 +45,7 @@ process.env.PLAYWRIGHT_BROWSERS_PATH ||= join(root,'tools','browsers');
 const live=createLive(root,{onClose:id=>control.sessionClosed(id)});
 const liveRef={session:sessionId,snapshot:z.string().uuid(),element:z.string().uuid()};
 server.tool('ecoagent_live_open','Open one temporary persistent anonymous public browser on an approved origin. No login, submission or writes.',{url:z.string().url().max(2048)},{readOnlyHint:true,openWorldHint:true},async({url})=>exclusive(()=>live.open(url)));
-server.tool('ecoagent_live_demo','Open an offline synthetic form for testing draft interaction. No external requests or submission.',{},{readOnlyHint:true,openWorldHint:false},async()=>exclusive(()=>live.open('',true)));
+server.tool('ecoagent_live_demo','Open an offline synthetic form; optional dynamic fixture enables only built-in JavaScript. No external requests or submission.',{dynamic:z.boolean().optional()},{readOnlyHint:true,openWorldHint:false},async({dynamic})=>exclusive(()=>live.open('',true,false,dynamic===true)));
 server.tool('ecoagent_live_inspect','Inspect visible elements in the current temporary live browser. No field values returned.',{session:sessionId},{readOnlyHint:true},async({session})=>exclusive(()=>live.inspect(session)));
 server.tool('ecoagent_live_follow','Navigate to an approved same-origin link from the current live snapshot. No arbitrary click.',liveRef,{readOnlyHint:true,openWorldHint:true},async({session,snapshot,element})=>exclusive(()=>live.follow(session,snapshot,element)));
 server.tool('ecoagent_live_draft','Fill or select a non-sensitive field in offline demo or explicit static draft mode. No submission or upload.',{...liveRef,value:z.string().max(2000)},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session,snapshot,element,value})=>exclusive(()=>live.fill(session,snapshot,element,value)));
@@ -60,7 +60,7 @@ server.tool('ecoagent_draft_open','Open approved anonymous public form in static
 server.tool('ecoagent_tabs','List tabs in current temporary browser.',{session:sessionId},{readOnlyHint:true},async({session})=>exclusive(()=>live.tabs(session)));
 server.tool('ecoagent_new_tab','Open an exact inspected approved link in a new tab, maximum four.',liveRef,{readOnlyHint:true,openWorldHint:true},async({session,snapshot,element})=>exclusive(()=>live.newTab(session,snapshot,element)));
 server.tool('ecoagent_switch_tab','Select an existing temporary tab.',{session:sessionId,tab:z.number().int().min(1).max(4)},{readOnlyHint:true},async({session,tab})=>exclusive(()=>live.switchTab(session,tab)));
-server.tool('ecoagent_click_demo','Click a navigation link in the offline demonstration only. No submission.',liveRef,{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session,snapshot,element})=>exclusive(()=>live.click(session,snapshot,element)));
+server.tool('ecoagent_click_demo','Click an offline demo navigation link or fixed dynamic demo button. No submission.',liveRef,{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session,snapshot,element})=>exclusive(()=>live.click(session,snapshot,element)));
 server.tool('ecoagent_toggle','Click an inspected checkbox or radio in offline demo or static public draft mode; no submission.',{...liveRef,checked:z.boolean()},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session,snapshot,element,checked})=>exclusive(()=>live.toggle(session,snapshot,element,checked)));
 server.tool('ecoagent_attach_demo','Attach only the built-in synthetic test document to offline form; no local file reads or network upload.',{session:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session})=>exclusive(()=>live.attachDemo(session)));
 server.tool('ecoagent_download_demo','Download the fixed synthetic test document inside the offline browser and verify SHA256; delete temporary download.',{session:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session})=>exclusive(()=>live.downloadDemo(session)));

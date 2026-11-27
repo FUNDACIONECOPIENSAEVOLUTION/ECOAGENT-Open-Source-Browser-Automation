@@ -61,6 +61,18 @@ try{
   const forward=await call('ecoagent_history',{session:a.session,direction:'forward'});assert.equal(forward.title,'Second page');
   const refreshed=await call('ecoagent_reload',{session:a.session});assert.equal(refreshed.reloaded,true);assert.equal(refreshed.title,'Second page');
   await call('ecoagent_live_close',{session:a.session});console.log('OFFLINE LIVE FORM MCP OK');
+  let b=await call('ecoagent_live_demo',{dynamic:true});
+  assert.ok(!b.elements.some(e=>e.label==='Summary'));
+  b=await call('ecoagent_live_draft',{session:b.session,snapshot:b.snapshot,element:b.elements.find(e=>e.label==='Project').id,value:'Dynamic synthetic project'});
+  const expand=b.elements.find(e=>e.label==='Add details');assert.ok(expand?.click);
+  b=await call('ecoagent_click_demo',{session:b.session,snapshot:b.snapshot,element:expand.id});
+  assert.equal(b.submitted,false);
+  const summary=b.elements.find(e=>e.label==='Summary');assert.ok(summary?.draft);
+  b=await call('ecoagent_live_draft',{session:b.session,snapshot:b.snapshot,element:summary.id,value:'Synthetic details'});
+  assert.equal((await call('ecoagent_live_review',{session:b.session})).ready,true);
+  assert.equal((await call('ecoagent_live_verify',{session:b.session,snapshot:b.snapshot,element:b.elements.find(e=>e.label==='Project').id,value:'Dynamic synthetic project'})).matches,true);
+  assert.equal(b.elements.find(e=>e.label==='Submit').click,false);
+  await call('ecoagent_live_close',{session:b.session});console.log('OFFLINE DYNAMIC FORM MCP OK');
  }
  if(process.argv.includes('--live')){const r=await client.callTool({name:'ecoagent_local_read',arguments:{url:'https://example.org/'}},undefined,{timeout:45000});assert.equal(r.isError??false,false);const p=JSON.parse(r.content[0].text);assert.equal(new URL(p.url).origin,'https://example.org');assert.ok(p.title&&p.text.length>40);console.log('DESKTOP LIVE READ OK: '+p.title)}
  console.log('DESKTOP STDIO MCP OK');
