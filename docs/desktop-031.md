@@ -1,0 +1,3 @@
+# ECOAGENT v0.31.0 — isolated dynamic form prototype
+
+Optional dynamic=true on ecoagent_live_demo enables built-in JavaScript only in the synthetic fixture. The fixed Add details button reveals a required field; fresh inspection, filling, review and preservation of previous input are regression-tested. No arbitrary script, arbitrary button, external network requests or submission in demo. External dynamic forms, authentication, uploads and receipts remain unimplemented. Existing 35-tool count retained; refresh the catalog after installation to obtain the optional argument. CI and local acceptance are separate gates.
