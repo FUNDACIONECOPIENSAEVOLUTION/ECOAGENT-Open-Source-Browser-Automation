@@ -9,10 +9,12 @@ import {discover,validateDiscovery} from './desktop-discovery.mjs';
 import {createSessions} from './desktop-sessions.mjs';
 import {createLive} from './desktop-live.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.29.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.30.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.29.0',publicReadOrigins:origins}));
+const {createControl}=await import('./manual-control.mjs');
+const control=createControl();
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.30.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -25,6 +27,7 @@ async function readPage(url){
  return JSON.parse(output);
 }
 async function exclusive(fn){
+ if(control.status().mode==='human')return {isError:true,...result({error:'Human control active'})};
  if(busy)return {isError:true,...result({error:'Busy'})};
  busy=true;
  try{return result(await fn())}catch(e){if(process.env.ECOAGENT_TEST_DIAGNOSTICS==='1')console.error('MCP diagnostic:',String(e.message).slice(0,3000));return {isError:true,...result({error:'Read failed or URL not approved'})}}finally{busy=false}
@@ -50,7 +53,7 @@ server.tool('ecoagent_live_close','Close the temporary live browser.',{session:s
 server.tool('ecoagent_live_review','Review required-field completion in demo or static draft mode. Returns validation flags, never field values. No submission.',{session:sessionId},{readOnlyHint:true,openWorldHint:false},async({session})=>exclusive(()=>live.review(session)));
 server.tool('ecoagent_live_verify','Compare an expected draft field value in demo or static draft mode. Returns a boolean only.',{...liveRef,value:z.string().max(2000)},{readOnlyHint:true,openWorldHint:false},async({session,snapshot,element,value})=>exclusive(()=>live.verify(session,snapshot,element,value)));
 server.tool('ecoagent_live_capture','Return a screenshot of the offline synthetic demo only. Do not use private data in the demo.',{session:sessionId},{readOnlyHint:true,openWorldHint:false},async({session})=>{
- if(busy)return {isError:true,...result({error:'Busy'})};busy=true;
+ if(control.status().mode==='human'||busy)return {isError:true,...result({error:'Busy or human control active'})};busy=true;
  try{const c=await live.capture(session);return {content:[{type:'image',data:c.data,mimeType:c.mimeType},{type:'text',text:JSON.stringify({sha256:c.sha256,demo:true})}]}}catch{return {isError:true,...result({error:'Capture failed or unavailable outside demo'})}}finally{busy=false}
 });
 server.tool('ecoagent_draft_open','Open approved anonymous public form in static draft mode, JavaScript disabled, no submissions or uploads. Only authorized non-sensitive institutional data.',{url:z.string().url().max(2048)},{readOnlyHint:true,openWorldHint:true},async({url})=>exclusive(()=>live.open(url,false,true)));
@@ -62,7 +65,7 @@ server.tool('ecoagent_toggle','Click an inspected checkbox or radio in offline d
 server.tool('ecoagent_attach_demo','Attach only the built-in synthetic test document to offline form; no local file reads or network upload.',{session:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session})=>exclusive(()=>live.attachDemo(session)));
 server.tool('ecoagent_download_demo','Download the fixed synthetic test document inside the offline browser and verify SHA256; delete temporary download.',{session:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session})=>exclusive(()=>live.downloadDemo(session)));
 server.tool('ecoagent_preview','Return a masked screenshot of a static public draft or offline demo. Form controls masked; public page text remains visible.',{session:sessionId},{readOnlyHint:true,openWorldHint:false},async({session})=>{
- if(busy)return {isError:true,...result({error:'Busy'})};busy=true;
+ if(control.status().mode==='human'||busy)return {isError:true,...result({error:'Busy or human control active'})};busy=true;
  try{const c=await live.preview(session);return {content:[{type:'image',data:c.data,mimeType:c.mimeType},{type:'text',text:JSON.stringify({sha256:c.sha256,masked:true})}]}}catch{return {isError:true,...result({error:'Preview failed'})}}finally{busy=false}
 });
 // Approval decisions are available only through the opt-in loopback UI, never an MCP tool.
@@ -71,7 +74,7 @@ const approvals=createApprovals();
 const {createDocumentVault}=await import('./document-vault.mjs');
 const vault=createDocumentVault();
 let approvalUI;
-async function ensureLocalUI(){if(process.env.ECOAGENT_ENABLE_APPROVAL_UI!=='1')throw Error('Local UI disabled');if(!approvalUI){const {startApprovalUI}=await import('./approval-ui.mjs');approvalUI=await startApprovalUI(approvals,{vault});console.error('ECOAGENT local UI: '+approvalUI.url)}return approvalUI}
+async function ensureLocalUI(){if(process.env.ECOAGENT_ENABLE_APPROVAL_UI!=='1')throw Error('Local UI disabled');if(!approvalUI){const {startApprovalUI}=await import('./approval-ui.mjs');approvalUI=await startApprovalUI(approvals,{vault,manual});console.error('ECOAGENT local UI: '+approvalUI.url)}return approvalUI}
 server.tool('ecoagent_request_demo_approval','Request local human approval for a synthetic document action. Does not authorize or execute the action.',{session:sessionId,action:z.enum(['demo-attach','demo-download'])},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session,action})=>exclusive(async()=>{
  if(process.env.ECOAGENT_ENABLE_APPROVAL_UI!=='1')throw Error('Local approval UI disabled');
  const s=await live.inspect(session);if(!s.demo)throw Error('Demo session required');
@@ -106,4 +109,29 @@ server.tool('ecoagent_attach_document','Select a locally approved document in th
 }));
 server.tool('ecoagent_reload','Reload the active browser tab. Blocks if unsaved draft fields or attachments exist unless the user explicitly agrees to discard them. Never submit a form.',{session:sessionId,discard:z.boolean().default(false)},{readOnlyHint:false,destructiveHint:true,openWorldHint:true},async({session,discard})=>exclusive(()=>live.reload(session,discard)));
 server.tool('ecoagent_history','Navigate back or forward in the active browser tab. Blocks unsaved draft changes unless the user explicitly agrees to discard them.',{session:sessionId,direction:z.enum(['back','forward']),discard:z.boolean().default(false)},{readOnlyHint:false,destructiveHint:true,openWorldHint:true},async({session,direction,discard})=>exclusive(()=>live.history(session,direction,discard)));
+// Only local HTTP UI can take/release control or perform these limited actions.
+const manual={
+ status:()=>control.status(),
+ async execute(action,args={}){
+  if(busy)throw Error('Browser busy');busy=true;
+  try{
+   if(action==='take')return control.take();
+   if(action==='release')return control.release();
+   const id=control.assertHuman();
+   if(action==='inspect')return live.inspect(id);
+   if(action==='preview')return live.preview(id);
+   if(action==='reload')return live.reload(id,false);
+   if(action==='back'||action==='forward')return live.history(id,action,false);
+   if(action==='switch')return live.switchTab(id,args.tab);
+   if(action==='follow')return live.follow(id,args.snapshot,args.element);
+   if(action==='fill')return live.fill(id,args.snapshot,args.element,args.value);
+   if(action==='toggle')return live.toggle(id,args.snapshot,args.element,args.checked);
+   throw Error('Unsupported manual action');
+  }finally{busy=false}
+ }
+};
+server.tool('ecoagent_request_manual','Request human takeover of current demo/static draft browser. Only local UI can accept and release.',{session:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session})=>exclusive(async()=>{
+ await ensureLocalUI();const s=await live.inspect(session);if(!(s.demo||s.draftMode))throw Error('Draft mode required');return control.request(session);
+}));
+server.tool('ecoagent_control_status','Read current AI/human control mode.',{},{readOnlyHint:true,openWorldHint:false},async()=>result(control.status()));
 await server.connect(new StdioServerTransport());
