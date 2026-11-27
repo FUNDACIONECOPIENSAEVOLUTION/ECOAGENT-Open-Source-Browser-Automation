@@ -25,3 +25,19 @@ test('loopback document ingestion and explicit approval boundaries',async()=>{
   assert.equal(vault.list().length,0);
  }finally{await ui.close()}
 });
+
+test('manual endpoint requires same-origin POST and renders checkbox uncheck control',async()=>{
+ const approvals=createApprovals();const calls=[];
+ const manual={status:()=>({mode:'human',session:'fixture',requested:false}),execute:async(action,args)=>{calls.push({action,args});return {ok:true}}};
+ const ui=await startApprovalUI(approvals,{port:0,manual});
+ try{
+  const origin=new URL(ui.url).origin;
+  const html=await (await fetch(ui.url)).text();assert.match(html,/Desmarcar/);
+  const status=await fetch(ui.url+'/manual/status');assert.equal(status.status,200);
+  assert.equal((await status.json()).mode,'human');
+  const post={method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({action:'inspect',args:{}})};
+  assert.equal((await fetch(ui.url+'/manual/action',{...post,headers:{...post.headers,Origin:'https://example.org'}})).status,403);
+  const accepted=await fetch(ui.url+'/manual/action',post);assert.equal(accepted.status,200);
+  assert.deepEqual(calls,[{action:'inspect',args:{}}]);
+ }finally{await ui.close()}
+});
