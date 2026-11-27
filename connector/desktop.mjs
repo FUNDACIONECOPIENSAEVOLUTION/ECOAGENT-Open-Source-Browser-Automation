@@ -11,12 +11,12 @@ import {createLive} from './desktop-live.mjs';
 import {createLivePool} from './live-pool.mjs';
 import {createSubmissionLedger} from './submission-ledger.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.44.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.45.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.44.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.45.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -179,15 +179,14 @@ server.tool('ecoagent_history','Navigate back or forward in the active browser t
 // Only local HTTP UI can take/release control or perform these limited actions.
 const manual={
  status:()=>({...control.status(),browser:live.current()}),
- async observe(){if(busy)return {busy:true};const s=live.current();if(!s)return {available:false};busy=true;try{return {available:true,...await live.preview(s.session)}}finally{busy=false}},
+ async observe(){if(control.status().mode==='human')return {available:false};if(busy)return {busy:true};const s=live.current();if(!s)return {available:false};busy=true;try{return {available:true,...await live.preview(s.session)}}finally{busy=false}},
  async execute(action,args={}){
   if(busy)throw Error('Browser busy');busy=true;
   try{
-   if(action==='take')return control.take();
-   if(action==='release'){const id=control.assertHuman();const state=await live.inspect(id);if(state.manualRequired)return {blocked:true,reason:state.reason,...control.status()};return {...control.release(),resumed:true,session:id,snapshot:state.snapshot}}
+   if(action==='take'){const state=control.status();if(!state.requested||!state.session)throw Error('No pending takeover');await live.humanTake(state.session);return control.take()}
+   if(action==='release'){const id=control.assertHuman();const state=await live.humanRelease(id);if(state.manualRequired||state.blocked)return {blocked:true,reason:state.reason,...control.status()};return {...control.release(),resumed:true,session:id,snapshot:state.snapshot}}
    const id=control.assertHuman();
-   if(action==='inspect')return live.inspect(id);
-   if(action==='preview')return live.preview(id);
+   if(action==='inspect'||action==='preview')return {blocked:true,reason:'Use the visible browser during manual control'};
    if(action==='reload')return live.reload(id,false);
    if(action==='back'||action==='forward')return live.history(id,action,false);
    if(action==='switch')return live.switchTab(id,args.tab);
