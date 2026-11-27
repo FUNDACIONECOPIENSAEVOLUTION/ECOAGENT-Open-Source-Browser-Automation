@@ -10,12 +10,12 @@ import {createSessions} from './desktop-sessions.mjs';
 import {createLive} from './desktop-live.mjs';
 import {createLivePool} from './live-pool.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.35.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.36.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.35.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.36.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -49,6 +49,8 @@ server.tool('ecoagent_live_open','Open an independent temporary anonymous public
 server.tool('ecoagent_live_demo','Open an offline synthetic form; optional dynamic fixture enables only built-in JavaScript. No external requests or submission.',{dynamic:z.boolean().optional()},{readOnlyHint:true,openWorldHint:false},async({dynamic})=>exclusive(()=>live.open('',true,false,dynamic===true)));
 server.tool('ecoagent_live_inspect','Inspect visible elements in the current temporary live browser. No field values returned.',{session:sessionId},{readOnlyHint:true},async({session})=>exclusive(()=>live.inspect(session)));
 server.tool('ecoagent_live_follow','Navigate to an approved same-origin link from the current live snapshot. No arbitrary click.',liveRef,{readOnlyHint:true,openWorldHint:true},async({session,snapshot,element})=>exclusive(()=>live.follow(session,snapshot,element)));
+server.tool('ecoagent_scroll','Scroll an approved public or offline page and refresh visible element references. No writes or submission.',{session:sessionId,direction:z.enum(['up','down','top','bottom']),amount:z.number().int().min(100).max(2000).default(600)},{readOnlyHint:true,openWorldHint:true},async({session,direction,amount})=>exclusive(()=>live.scroll(session,direction,amount)));
+server.tool('ecoagent_click_link','Activate an inspected approved same-origin navigation link by navigating to its verified destination. No arbitrary JavaScript button or submission.',liveRef,{readOnlyHint:true,openWorldHint:true},async({session,snapshot,element})=>exclusive(()=>live.clickLink(session,snapshot,element)));
 server.tool('ecoagent_live_draft','Fill or select a non-sensitive field in offline demo or explicit static draft mode. No submission or upload.',{...liveRef,value:z.string().max(2000)},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session,snapshot,element,value})=>exclusive(()=>live.fill(session,snapshot,element,value)));
 server.tool('ecoagent_live_close','Close the temporary live browser.',{session:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session})=>exclusive(()=>live.close(session)));
 server.tool('ecoagent_browser_sessions','List independent temporary browser sessions without exposing field values or credentials.',{},{readOnlyHint:true,openWorldHint:false},async()=>exclusive(async()=>live.list()));
@@ -68,7 +70,7 @@ server.tool('ecoagent_click_demo','Click an offline demo navigation link or fixe
 server.tool('ecoagent_toggle','Click an inspected checkbox or radio in offline demo or static public draft mode; no submission.',{...liveRef,checked:z.boolean()},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session,snapshot,element,checked})=>exclusive(()=>live.toggle(session,snapshot,element,checked)));
 server.tool('ecoagent_attach_demo','Attach only the built-in synthetic test document to offline form; no local file reads or network upload.',{session:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session})=>exclusive(()=>live.attachDemo(session)));
 server.tool('ecoagent_download_demo','Download the fixed synthetic test document inside the offline browser and verify SHA256; delete temporary download.',{session:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session})=>exclusive(()=>live.downloadDemo(session)));
-server.tool('ecoagent_preview','Return a masked screenshot of a static public draft or offline demo. Form controls masked; public page text remains visible.',{session:sessionId},{readOnlyHint:true,openWorldHint:false},async({session})=>{
+server.tool('ecoagent_preview','Return a masked screenshot of an approved anonymous public page, static draft or offline demo. Form controls masked; public page text remains visible.',{session:sessionId},{readOnlyHint:true,openWorldHint:false},async({session})=>{
  if(control.status().mode==='human'||busy)return {isError:true,...result({error:'Busy or human control active'})};busy=true;
  try{const c=await live.preview(session);return {content:[{type:'image',data:c.data,mimeType:c.mimeType},{type:'text',text:JSON.stringify({sha256:c.sha256,masked:true})}]}}catch{return {isError:true,...result({error:'Preview failed'})}}finally{busy=false}
 });
@@ -119,7 +121,7 @@ server.tool('ecoagent_history','Navigate back or forward in the active browser t
 // Only local HTTP UI can take/release control or perform these limited actions.
 const manual={
  status:()=>({...control.status(),browser:live.current()}),
- async observe(){if(busy)return {busy:true};const s=live.current();if(!s||!(s.demo||s.draftMode))return {available:false};busy=true;try{return {available:true,...await live.preview(s.session)}}finally{busy=false}},
+ async observe(){if(busy)return {busy:true};const s=live.current();if(!s)return {available:false};busy=true;try{return {available:true,...await live.preview(s.session)}}finally{busy=false}},
  async execute(action,args={}){
   if(busy)throw Error('Browser busy');busy=true;
   try{

@@ -1,0 +1,3 @@
+# ECOAGENT v0.36.0 — public page interaction
+
+Adds bounded vertical scroll, viewport visibility metadata, image alt text and role button/menu metadata, verified same-origin link activation, and masked screenshots of approved anonymous public pages. Link activation navigates to the exact verified URL, not arbitrary JavaScript click. Existing anonymous read-only network policy stays intact; external writes, login and submissions are not enabled. Snapshot references refresh after scroll. Offline integration covers scroll and viewport metadata; real page acceptance and Windows installation pending. The 60-element snapshot cap remains; full-page accessibility and dynamic external actions remain work items.

@@ -7,7 +7,7 @@ const browserEnv=Object.fromEntries(['PLAYWRIGHT_BROWSERS_PATH','ECOAGENT_TEST_D
 const client=new Client({name:'ecoagent-desktop-test',version:'1.0.0'});
 try{
  await client.connect(new StdioClientTransport({command:process.execPath,env:browserEnv,stderr:'inherit',args:[fileURLToPath(new URL('./desktop.mjs',import.meta.url))]}));
- const tools=(await client.listTools()).tools;assert.equal(tools.length,39);assert.ok(tools.some(t=>t.name==='ecoagent_discover'));
+ const tools=(await client.listTools()).tools;assert.equal(tools.length,41);assert.ok(tools.some(t=>t.name==='ecoagent_discover'));
  const transfer=async args=>{const r=await client.callTool({name:'ecoagent_file_transfer',arguments:args});assert.equal(r.isError??false,false);return JSON.parse(r.content[0].text)};
  const bytes=Buffer.from('Existing file bytes');const digest=createHash('sha256').update(bytes).digest('hex');const started=await transfer({action:'begin',name:'existing.txt',size:bytes.length,sha256:digest});await transfer({action:'append',transfer:started.transfer,offset:0,data:bytes.toString('base64')});const received=await transfer({action:'finish',transfer:started.transfer});assert.equal(received.document.sha256,digest);assert.equal(received.submitted,false);
  const h=await client.callTool({name:'ecoagent_local_health',arguments:{}});assert.equal(JSON.parse(h.content[0].text).ok,true);
@@ -18,7 +18,7 @@ try{
  const badLive=await client.callTool({name:'ecoagent_live_open',arguments:{url:'https://localhost/'}});assert.equal(badLive.isError,true);
  if(process.argv.includes('--fixture')){
   const call=async(name,args)=>{const r=await client.callTool({name,arguments:args},undefined,{timeout:45000});assert.equal(r.isError??false,false,name+': '+JSON.stringify(r.content));return JSON.parse(r.content[0].text)};
-  let a=await call('ecoagent_live_demo',{});const field=a.elements.find(e=>e.label==='Project');assert.ok(field?.draft,JSON.stringify(a.elements));assert.ok(!a.elements.some(e=>e.type==='password'));
+  let a=await call('ecoagent_live_demo',{});a=await call('ecoagent_scroll',{session:a.session,direction:'bottom',amount:600});assert.ok(Number.isFinite(a.position.y));assert.equal(a.submitted,false);assert.ok(a.elements.some(e=>typeof e.inViewport==='boolean'));const field=a.elements.find(e=>e.label==='Project');assert.ok(field?.draft,JSON.stringify(a.elements));assert.ok(!a.elements.some(e=>e.type==='password'));
   a=await call('ecoagent_live_draft',{session:a.session,snapshot:a.snapshot,element:field.id,value:'Synthetic project'});
   const nextDraft=a.elements.find(e=>e.label==='Next page');
   assert.ok(nextDraft?.follow);
