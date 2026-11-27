@@ -10,6 +10,7 @@ const sampleDocument=Buffer.from('ECOAGENT synthetic document for offline testin
 const sampleHash=createHash('sha256').update(sampleDocument).digest('hex');
 const html='<html><head><title>ECOAGENT local form fixture</title></head><body><h1>Draft only</h1><form><label>Project <input name="project" required></label><label>Summary <textarea name="summary"></textarea></label><label>Category <select name="category"><option>Research</option><option>Environment</option></select></label><label>Accept demo <input type="checkbox" name="demoConsent"></label><label>Sample document <input type="file" name="demoDocument"></label><label>Password <input type="password" name="password"></label><button type="submit">Submit</button><a href="'+fixtureNext+'">Next page</a></form></body></html>';
 const dynamicHTML='<html><head><title>ECOAGENT dynamic fixture</title></head><body><form id="draft"><label>Project <input name="project" required></label><button type="button" id="expand">Add details</button><section id="details" hidden><label>Summary <textarea name="summary" required></textarea></label></section><button type="button" id="nextStage">Next stage</button><section id="budgetStage" hidden><label>Budget <input name="budget" type="number" min="1" required></label><button type="button" id="previousStage">Previous stage</button></section><button type="submit">Submit</button></form><script>document.getElementById("expand").addEventListener("click",()=>{document.getElementById("details").hidden=false});document.getElementById("nextStage").addEventListener("click",()=>{const f=document.getElementById("draft");const project=f.elements.project;const summary=f.elements.summary;if(!project.value.trim()||!summary.value.trim())return;document.getElementById("budgetStage").hidden=false;document.getElementById("details").hidden=true;project.closest("label").hidden=true;document.getElementById("expand").hidden=true;document.getElementById("nextStage").hidden=true});document.getElementById("previousStage").addEventListener("click",()=>{document.getElementById("budgetStage").hidden=true;document.getElementById("details").hidden=false;document.querySelector("[name=project]").closest("label").hidden=false;document.getElementById("expand").hidden=false;document.getElementById("nextStage").hidden=false});document.getElementById("draft").addEventListener("submit",e=>e.preventDefault());</script></body></html>';
+export const maxTabs=80;
 export function createLive(root,{ttl=300000,onClose=()=>{}}={}){
  let session=null;
  async function close(){const s=session;session=null;if(s){clearTimeout(s.timer);try{await s.browser.close().catch(()=>{})}finally{onClose(s.id)}}return {closed:!!s}}
@@ -99,11 +100,22 @@ export function createLive(root,{ttl=300000,onClose=()=>{}}={}){
  fill:(id,ref,element,value)=>run(id,async s=>{if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Draft mode required');const r=findRef(ref,s.snapshot,s.refs,element);validateDraft(r.info,value);if(!await r.handle.evaluate(e=>e.isConnected&&!e.disabled&&!e.readOnly))throw Error('Field changed');if(r.info.tag==='select')await r.handle.selectOption({label:value},{timeout:5000});else await r.handle.fill(value,{timeout:5000});return inspect(s)}),
  tabs:(id)=>run(id,async s=>({session:s.id,tabs:await Promise.all(s.tabs.map(async(p,i)=>({tab:i+1,active:p===s.page,url:p.url(),title:await p.title()})))})),
  newTab:(id,ref,element)=>run(id,async s=>{
-  const r=findRef(ref,s.snapshot,s.refs,element);if(!r.href||s.status!==200||s.tabs.length>=4)throw Error('Tab limit or invalid link');
+  const r=findRef(ref,s.snapshot,s.refs,element);if(!r.href||s.status!==200)throw new StaleReferenceError('Invalid link');
+  if(s.tabs.length>=maxTabs)return {blocked:true,reason:'tab_limit',limit:maxTabs,session:s.id,snapshot:s.snapshot};
   s.creating=true;try{s.page=await s.context.newPage();s.tabs.push(s.page)}finally{s.creating=false}
   return navigate(s,r.href);
  }),
- switchTab:(id,tab)=>run(id,async s=>{if(!s.tabs[tab-1])throw Error('Unknown tab');s.page=s.tabs[tab-1];s.status=s.statuses?.get(s.page)??null;return inspect(s)}),
+ switchTab:(id,tab)=>run(id,async s=>{if(!s.tabs[tab-1])throw new StaleReferenceError('Unknown tab');s.page=s.tabs[tab-1];s.status=s.statuses?.get(s.page)??null;return inspect(s)}),
+ closeTab:(id,tab)=>run(id,async s=>{
+  if(!s.tabs[tab-1])throw new StaleReferenceError('Unknown tab');
+  if(s.tabs.length===1)return {blocked:true,reason:'last_tab',session:s.id};
+  const previous=s.page,target=s.tabs[tab-1];s.page=target;
+  try{const blocked=await navigationGuard(s,false);if(blocked)return {...blocked,tab}}finally{s.page=previous}
+  await target.close();s.tabs.splice(tab-1,1);s.statuses?.delete(target);
+  if(previous===target)s.page=s.tabs[Math.min(tab-1,s.tabs.length-1)];
+  s.status=s.statuses?.get(s.page)??null;
+  return {...await inspect(s),closedTab:tab};
+ }),
  click:(id,ref,element)=>run(id,async s=>{
   if(!s.demo)throw Error('Button click restricted to offline demo');
   const r=findRef(ref,s.snapshot,s.refs,element);

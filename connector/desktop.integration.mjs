@@ -7,7 +7,7 @@ const browserEnv=Object.fromEntries(['PLAYWRIGHT_BROWSERS_PATH','ECOAGENT_TEST_D
 const client=new Client({name:'ecoagent-desktop-test',version:'1.0.0'});
 try{
  await client.connect(new StdioClientTransport({command:process.execPath,env:browserEnv,stderr:'inherit',args:[fileURLToPath(new URL('./desktop.mjs',import.meta.url))]}));
- const tools=(await client.listTools()).tools;assert.equal(tools.length,36);assert.ok(tools.some(t=>t.name==='ecoagent_discover'));
+ const tools=(await client.listTools()).tools;assert.equal(tools.length,37);assert.ok(tools.some(t=>t.name==='ecoagent_discover'));
  const transfer=async args=>{const r=await client.callTool({name:'ecoagent_file_transfer',arguments:args});assert.equal(r.isError??false,false);return JSON.parse(r.content[0].text)};
  const bytes=Buffer.from('Existing file bytes');const digest=createHash('sha256').update(bytes).digest('hex');const started=await transfer({action:'begin',name:'existing.txt',size:bytes.length,sha256:digest});await transfer({action:'append',transfer:started.transfer,offset:0,data:bytes.toString('base64')});const received=await transfer({action:'finish',transfer:started.transfer});assert.equal(received.document.sha256,digest);assert.equal(received.submitted,false);
  const h=await client.callTool({name:'ecoagent_local_health',arguments:{}});assert.equal(JSON.parse(h.content[0].text).ok,true);
@@ -53,6 +53,13 @@ try{
   const next=a.elements.find(e=>e.label==='Next page');assert.ok(next?.follow);
   const second=await call('ecoagent_new_tab',{session:a.session,snapshot:a.snapshot,element:next.id});assert.equal(second.title,'Second page');
   assert.equal((await call('ecoagent_tabs',{session:a.session})).tabs.length,2);
+  const blockedClose=await call('ecoagent_close_tab',{session:a.session,tab:1});assert.equal(blockedClose.reason,'unsaved_draft');
+  const closedTab=await call('ecoagent_close_tab',{session:a.session,tab:2});assert.equal(closedTab.closedTab,2);
+  assert.equal((await call('ecoagent_tabs',{session:a.session})).tabs.length,1);
+  assert.equal((await call('ecoagent_close_tab',{session:a.session,tab:1})).reason,'last_tab');
+  a=closedTab;
+  for(let i=0;i<5;i++){await call('ecoagent_new_tab',{session:a.session,snapshot:a.snapshot,element:a.elements.find(e=>e.label==='Next page').id});a=await call('ecoagent_switch_tab',{session:a.session,tab:1})}
+  assert.equal((await call('ecoagent_tabs',{session:a.session})).tabs.length,6);
   a=await call('ecoagent_switch_tab',{session:a.session,tab:1});
   assert.equal((await call('ecoagent_live_verify',{session:a.session,snapshot:a.snapshot,element:a.elements.find(e=>e.label==='Project').id,value:'Synthetic project'})).matches,true);
   const blocked=await call('ecoagent_reload',{session:a.session});assert.equal(blocked.blocked,true);assert.equal(blocked.reason,'unsaved_draft');
