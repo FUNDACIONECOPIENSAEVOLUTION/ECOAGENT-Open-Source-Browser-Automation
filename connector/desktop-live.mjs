@@ -5,7 +5,10 @@ import {sensitiveField} from '../privacy.mjs';
 import {createHash} from 'node:crypto';
 const fixture='https://example.org/ecoagent-local-fixture';
 const fixtureNext=fixture+'/next';
-const html='<html><head><title>ECOAGENT local form fixture</title></head><body><h1>Draft only</h1><form><label>Project <input name="project" required></label><label>Summary <textarea name="summary"></textarea></label><label>Category <select name="category"><option>Research</option><option>Environment</option></select></label><label>Password <input type="password" name="password"></label><button type="submit">Submit</button><a href="'+fixtureNext+'">Next page</a></form></body></html>';
+const fixtureDownload=fixture+'/document.txt';
+const sampleDocument=Buffer.from('ECOAGENT synthetic document for offline testing.\n','utf8');
+const sampleHash=createHash('sha256').update(sampleDocument).digest('hex');
+const html='<html><head><title>ECOAGENT local form fixture</title></head><body><h1>Draft only</h1><form><label>Project <input name="project" required></label><label>Summary <textarea name="summary"></textarea></label><label>Category <select name="category"><option>Research</option><option>Environment</option></select></label><label>Accept demo <input type="checkbox" name="demoConsent"></label><label>Sample document <input type="file" name="demoDocument"></label><label>Password <input type="password" name="password"></label><button type="submit">Submit</button><a href="'+fixtureNext+'">Next page</a></form></body></html>';
 export function createLive(root,{ttl=300000}={}){
  let session=null;
  async function close(){const s=session;session=null;if(s){clearTimeout(s.timer);await s.browser.close().catch(()=>{})}return {closed:!!s}}
@@ -22,7 +25,8 @@ export function createLive(root,{ttl=300000}={}){
     if(!info||sensitiveField(info))continue;
     const id=randomUUID();let href=null;if(info.href)try{const u=readURL(info.href);if(u.origin===s.origin&&(!s.demo||u.href===fixtureNext||u.href===fixture))href=u.href}catch{}
     const draft=(s.demo||s.draftMode)&&canDraft(info)&&s.status===200;
-    s.refs.set(id,{handle,info,href});fields.push({id,tag:info.tag,type:info.type,label:String(info.label).replace(/\s+/g,' ').trim().slice(0,160),required:info.required,draft,follow:!!href});
+    const toggle=(s.demo||s.draftMode)&&s.status===200&&info.tag==='input'&&['checkbox','radio'].includes(info.type)&&!info.disabled&&!info.readOnly;
+    s.refs.set(id,{handle,info,href});fields.push({id,tag:info.tag,type:info.type,label:String(info.label).replace(/\s+/g,' ').trim().slice(0,160),required:info.required,draft,toggle,follow:!!href});
    }
   }finally{for(const h of nodes)if(![...s.refs.values()].some(r=>r.handle===h))await h.dispose().catch(()=>{})}
   return {session:s.id,snapshot:s.snapshot,demo:s.demo,draftMode:s.draftMode,tab:s.tabs.indexOf(s.page)+1,url:s.page.url(),title:await s.page.title(),status:s.status,outcome:pageOutcome(s.status),text:(await s.page.locator('body').innerText({timeout:5000})).slice(0,5000),elements:fields};
@@ -37,9 +41,9 @@ export function createLive(root,{ttl=300000}={}){
   const browser=await chromium.launch({headless:true,chromiumSandbox:true,timeout:15000,env:Object.fromEntries(Object.entries(process.env).filter(([k])=>!/(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)/i.test(k))),});
   const s={id:randomUUID(),browser,origin:u.origin,demo,draftMode,tabs:[],refs:new Map(),active:true};session=s;
   try{
-   const c=await browser.newContext({acceptDownloads:false,serviceWorkers:'block',javaScriptEnabled:!demo&&!draftMode});
+   const c=await browser.newContext({acceptDownloads:demo,serviceWorkers:'block',javaScriptEnabled:!demo&&!draftMode});
    await c.route('**/*',async r=>{
-    if(demo){if([fixture,fixtureNext].includes(r.request().url())&&r.request().method()==='GET')return r.fulfill({status:200,contentType:'text/html',body:r.request().url()===fixture?html:'<html><title>Second page</title><body>Offline navigation successful</body></html>'});return r.abort()}
+    if(demo){if(r.request().url()===fixtureDownload&&r.request().method()==='GET')return r.fulfill({status:200,headers:{'content-type':'text/plain','content-disposition':'attachment; filename="ecoagent-demo.txt"'},body:sampleDocument});if([fixture,fixtureNext].includes(r.request().url())&&r.request().method()==='GET')return r.fulfill({status:200,contentType:'text/html',body:r.request().url()===fixture?html:'<html><title>Second page</title><body>Offline navigation successful</body></html>'});return r.abort()}
     if(!requestAllowed(r.request().url(),s.origin,r.request().method()))return r.abort();
     if(s.draftMode){try{readURL(r.request().url())}catch{return r.abort()}}
     try{const res=await r.fetch({maxRedirects:0,timeout:10000});try{if(res.status()>=300&&res.status()<400)await r.fulfill({status:403,contentType:'text/plain',body:'Redirect blocked'});else await r.fulfill({response:res})}finally{await res.dispose()}}catch{await r.abort().catch(()=>{})}
@@ -63,6 +67,43 @@ export function createLive(root,{ttl=300000}={}){
   const r=findRef(ref,s.snapshot,s.refs,element);
   if(r.info.tag!=='a'||!r.href)throw Error('Only offline navigation link clicks; submit disabled');
   await Promise.all([s.page.waitForURL(r.href,{timeout:5000}),r.handle.click({timeout:5000})]);s.status=200;return inspect(s);
+ }),
+ toggle:(id,ref,element,checked)=>run(id,async s=>{
+  if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Static draft mode required');
+  const r=findRef(ref,s.snapshot,s.refs,element);
+  if(sensitiveField(r.info)||r.info.tag!=='input'||!['checkbox','radio'].includes(r.info.type)||(!checked&&r.info.type==='radio'))throw Error('Not an eligible toggle');
+  const current=await r.handle.evaluate(e=>({connected:e.isConnected,type:e.type,disabled:e.disabled,readOnly:e.readOnly,checked:e.checked}));
+  if(!current.connected||current.disabled||current.readOnly||current.type!==r.info.type)throw Error('Control changed');
+  if(current.checked!==checked)await r.handle.click({timeout:5000});
+  if(await r.handle.evaluate(e=>e.checked)!==checked)throw Error('Click did not set requested state');
+  return {...await inspect(s),checked};
+ }),
+ attachDemo:(id)=>run(id,async s=>{
+  if(!s.demo||s.page.url()!==fixture)throw Error('Offline demo form required');
+  const input=s.page.locator('input[type=file][name=demoDocument]');
+  await input.setInputFiles({name:'ecoagent-demo.txt',mimeType:'text/plain',buffer:sampleDocument});
+  const file=await input.evaluate(e=>({name:e.files[0]?.name,size:e.files[0]?.size,count:e.files.length}));
+  if(file.count!==1||file.size!==sampleDocument.length)throw Error('Attachment verification failed');
+  return {demo:true,attached:true,submitted:false,name:file.name,size:file.size,sha256:sampleHash};
+ }),
+ downloadDemo:(id)=>run(id,async s=>{
+  if(!s.demo||s.page.url()!==fixture)throw Error('Offline demo form required');
+  // The anchor is a fixed trusted test element, not supplied by the remote caller.
+  await s.page.evaluate(url=>{const a=document.createElement('a');a.id='ecoagent-demo-download';a.href=url;a.textContent='Download demo document';document.body.appendChild(a)},fixtureDownload);
+  const [d]=await Promise.all([s.page.waitForEvent('download',{timeout:10000}),s.page.locator('#ecoagent-demo-download').first().click({timeout:5000})]);
+  try{
+   const stream=await d.createReadStream();let size=0;const h=createHash('sha256');
+   for await(const chunk of stream){size+=chunk.length;if(size>4096)throw Error('Demo download too large');h.update(chunk)}
+   const sha256=h.digest('hex');if(sha256!==sampleHash)throw Error('Download hash mismatch');
+   return {demo:true,downloaded:true,name:d.suggestedFilename(),size,sha256};
+  }finally{await d.delete().catch(()=>{});await s.page.locator('#ecoagent-demo-download').first().evaluate(e=>e.remove()).catch(()=>{})}
+ }),
+ preview:(id)=>run(id,async s=>{
+  if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Static draft mode required');
+  if(!s.demo)await inspect(s);
+  const bytes=await s.page.screenshot({type:'jpeg',quality:50,timeout:5000,mask:[s.page.locator('input,textarea,select,[contenteditable],iframe')],maskColor:'#777777'});
+  if(bytes.length>512000)throw Error('Preview too large');
+  return {data:bytes.toString('base64'),mimeType:'image/jpeg',sha256:createHash('sha256').update(bytes).digest('hex')};
  }),
  review:(id)=>run(id,async s=>{
   if(!(s.demo||s.draftMode))throw Error('Draft mode required');
