@@ -8,9 +8,9 @@ $stateDir=Join-Path $root 'local-config'
 $state=Join-Path $stateDir 'installed-release.json'
 $lock=Join-Path $stateDir 'release-update.lock'
 if($InstallSchedule){
- if(!$Apply){throw 'Specify -Apply explicitly to authorize automatic installation'}
+ if($Apply){throw 'Unattended installation disabled until idle coordination is validated. Register check-only schedule without -Apply.'}
  $when=[datetime]::ParseExact($MaintenanceTime,'HH:mm',[Globalization.CultureInfo]::InvariantCulture)
- $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -NonInteractive -File "D:\ECOAGENT\scripts\auto-update.ps1" -Apply' -WorkingDirectory $root
+ $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -NonInteractive -File "D:\ECOAGENT\scripts\auto-update.ps1"' -WorkingDirectory $root
  $trigger=New-ScheduledTaskTrigger -Daily -At $when
  $principal=New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
  $settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 20)
@@ -37,10 +37,6 @@ try{
   if([version]($previous.tag.TrimStart('v')) -ge [version]($tag.TrimStart('v'))){throw 'Downgrade or changed release tag refused'}
  }elseif(!$Apply){Write-Host 'No installed release recorded yet'}
  Write-Host "Verified release candidate: $tag $sha"
- if(!$Apply){return}
- # The installer must be locally installed and validated before scheduling.
- & (Join-Path $root 'scripts\install-release.ps1') -Commit $sha
- if(!$?){throw 'Release installation failed'}
- @{tag=$tag;sha=$sha;installedAt=(Get-Date).ToUniversalTime().ToString('o')}|ConvertTo-Json|Set-Content -LiteralPath $state -Encoding UTF8
- Write-Host "Installed release: $tag"
+ if($Apply){throw 'Use manually confirmed install-release.ps1; automatic installation not enabled'}
+ Write-Host 'Check only: no files changed or services stopped.'
 }finally{$guard.Dispose()}
