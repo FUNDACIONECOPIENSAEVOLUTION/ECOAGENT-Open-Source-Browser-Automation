@@ -9,12 +9,12 @@ import {discover,validateDiscovery} from './desktop-discovery.mjs';
 import {createSessions} from './desktop-sessions.mjs';
 import {createLive} from './desktop-live.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.33.1'});
+const server=new McpServer({name:'ecoagent-local',version:'0.34.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.33.1',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.34.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -42,7 +42,7 @@ server.tool('ecoagent_follow','Follow an exact same-origin link from the current
 server.tool('ecoagent_close','Close a temporary navigation snapshot session.',{session:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session})=>exclusive(()=>sessions.close(session)));
 // Set before lazy Playwright import; keep existing installed browser location.
 process.env.PLAYWRIGHT_BROWSERS_PATH ||= join(root,'tools','browsers');
-const live=createLive(root,{onClose:id=>control.sessionClosed(id)});
+const live=createLive(root,{onClose:id=>control.sessionClosed(id),visible:process.env.ECOAGENT_VISIBLE_BROWSER==='1'});
 const liveRef={session:sessionId,snapshot:z.string().uuid(),element:z.string().uuid()};
 server.tool('ecoagent_live_open','Open one temporary persistent anonymous public browser on an approved origin. No login, submission or writes.',{url:z.string().url().max(2048)},{readOnlyHint:true,openWorldHint:true},async({url})=>exclusive(()=>live.open(url)));
 server.tool('ecoagent_live_demo','Open an offline synthetic form; optional dynamic fixture enables only built-in JavaScript. No external requests or submission.',{dynamic:z.boolean().optional()},{readOnlyHint:true,openWorldHint:false},async({dynamic})=>exclusive(()=>live.open('',true,false,dynamic===true)));
@@ -115,12 +115,13 @@ server.tool('ecoagent_reload','Reload the active browser tab. Blocks if unsaved 
 server.tool('ecoagent_history','Navigate back or forward in the active browser tab. Blocks unsaved draft changes unless the user explicitly agrees to discard them.',{session:sessionId,direction:z.enum(['back','forward']),discard:z.boolean().default(false)},{readOnlyHint:false,destructiveHint:true,openWorldHint:true},async({session,direction,discard})=>exclusive(()=>live.history(session,direction,discard)));
 // Only local HTTP UI can take/release control or perform these limited actions.
 const manual={
- status:()=>control.status(),
+ status:()=>({...control.status(),browser:live.current()}),
+ async observe(){if(busy)return {busy:true};const s=live.current();if(!s||!(s.demo||s.draftMode))return {available:false};busy=true;try{return {available:true,...await live.preview(s.session)}}finally{busy=false}},
  async execute(action,args={}){
   if(busy)throw Error('Browser busy');busy=true;
   try{
    if(action==='take')return control.take();
-   if(action==='release')return control.release();
+   if(action==='release'){const id=control.assertHuman();await live.inspect(id);return control.release()}
    const id=control.assertHuman();
    if(action==='inspect')return live.inspect(id);
    if(action==='preview')return live.preview(id);
@@ -128,6 +129,7 @@ const manual={
    if(action==='back'||action==='forward')return live.history(id,action,false);
    if(action==='switch')return live.switchTab(id,args.tab);
    if(action==='follow')return live.follow(id,args.snapshot,args.element);
+   if(action==='click')return live.click(id,args.snapshot,args.element);
    if(action==='fill')return live.fill(id,args.snapshot,args.element,args.value);
    if(action==='toggle')return live.toggle(id,args.snapshot,args.element,args.checked);
    throw Error('Unsupported manual action');
@@ -137,5 +139,5 @@ const manual={
 server.tool('ecoagent_request_manual','Request human takeover of current demo/static draft browser. Only local UI can accept and release.',{session:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session})=>exclusive(async()=>{
  await ensureLocalUI();const s=await live.inspect(session);if(!(s.demo||s.draftMode))throw Error('Draft mode required');return control.request(session);
 }));
-server.tool('ecoagent_control_status','Read current AI/human control mode.',{},{readOnlyHint:true,openWorldHint:false},async()=>result(control.status()));
+server.tool('ecoagent_control_status','Read current AI/human control mode.',{},{readOnlyHint:true,openWorldHint:false},async()=>result({...control.status(),browser:live.current()}));
 await server.connect(new StdioServerTransport());

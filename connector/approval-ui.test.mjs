@@ -41,3 +41,5 @@ test('manual endpoint requires same-origin POST and renders checkbox uncheck con
   assert.deepEqual(calls,[{action:'inspect',args:{}}]);
  }finally{await ui.close()}
 });
+
+test('observer is loopback token scoped and separate from mutations',async()=>{const a=createApprovals();let n=0;const ui=await startApprovalUI(a,{port:0,manual:{observe:async()=>{n++;return {available:false}}}});try{assert.equal((await fetch(new URL(ui.url).origin+'/manual/observe')).status,404);assert.equal(n,0);assert.equal((await fetch(ui.url+'/manual/observe')).status,200);assert.equal(n,1);assert.match(await (await fetch(ui.url)).text(),/Vista actualizada automáticamente/)}finally{await ui.close()}});

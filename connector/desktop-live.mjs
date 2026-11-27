@@ -11,7 +11,7 @@ const sampleHash=createHash('sha256').update(sampleDocument).digest('hex');
 const html='<html><head><title>ECOAGENT local form fixture</title></head><body><h1>Draft only</h1><form><label>Project <input name="project" required></label><label>Summary <textarea name="summary"></textarea></label><label>Category <select name="category"><option>Research</option><option>Environment</option></select></label><label>Accept demo <input type="checkbox" name="demoConsent"></label><label>Sample document <input type="file" name="demoDocument"></label><label>Password <input type="password" name="password"></label><button type="submit">Submit</button><a href="'+fixtureNext+'">Next page</a></form></body></html>';
 const dynamicHTML='<html><head><title>ECOAGENT dynamic fixture</title></head><body><form id="draft"><label>Project <input name="project" required></label><button type="button" id="expand">Add details</button><section id="details" hidden><label>Summary <textarea name="summary" required></textarea></label></section><button type="button" id="nextStage">Next stage</button><section id="budgetStage" hidden><label>Budget <input name="budget" type="number" min="1" required></label><button type="button" id="previousStage">Previous stage</button></section><button type="submit">Submit</button></form><script>document.getElementById("expand").addEventListener("click",()=>{document.getElementById("details").hidden=false});document.getElementById("nextStage").addEventListener("click",()=>{const f=document.getElementById("draft");const project=f.elements.project;const summary=f.elements.summary;if(!project.value.trim()||!summary.value.trim())return;document.getElementById("budgetStage").hidden=false;document.getElementById("details").hidden=true;project.closest("label").hidden=true;document.getElementById("expand").hidden=true;document.getElementById("nextStage").hidden=true});document.getElementById("previousStage").addEventListener("click",()=>{document.getElementById("budgetStage").hidden=true;document.getElementById("details").hidden=false;document.querySelector("[name=project]").closest("label").hidden=false;document.getElementById("expand").hidden=false;document.getElementById("nextStage").hidden=false});document.getElementById("draft").addEventListener("submit",e=>e.preventDefault());</script></body></html>';
 export const maxTabs=80;
-export function createLive(root,{ttl=300000,onClose=()=>{}}={}){
+export function createLive(root,{ttl=300000,onClose=()=>{},visible=false}={}){
  let session=null;
  async function close(){const s=session;session=null;if(s){clearTimeout(s.timer);try{await s.browser.close().catch(()=>{})}finally{onClose(s.id)}}return {closed:!!s}}
  function arm(s){clearTimeout(s.timer);s.timer=setTimeout(()=>{if(session===s&&!s.active)void close();else if(session===s)arm(s)},ttl);s.timer.unref()}
@@ -62,7 +62,7 @@ export function createLive(root,{ttl=300000,onClose=()=>{}}={}){
   if(session)throw Error('Close current live session first');const u=readURL(demo?fixture:url);
   // Import lazily: health and invalid-input tests work without browser installation.
   const {chromium}=await import('playwright');
-  const browser=await chromium.launch({headless:true,chromiumSandbox:true,timeout:15000,env:Object.fromEntries(Object.entries(process.env).filter(([k])=>!/(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)/i.test(k))),});
+  const browser=await chromium.launch({headless:!visible,chromiumSandbox:true,timeout:15000,env:Object.fromEntries(Object.entries(process.env).filter(([k])=>!/(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)/i.test(k))),});
   const s={id:randomUUID(),browser,origin:u.origin,demo,draftMode,dynamicDemo:demo&&dynamicDemo,tabs:[],refs:new Map(),active:true};session=s;
   try{
    const c=await browser.newContext({acceptDownloads:demo,serviceWorkers:'block',javaScriptEnabled:s.dynamicDemo||(!demo&&!draftMode)});
@@ -76,6 +76,7 @@ export function createLive(root,{ttl=300000,onClose=()=>{}}={}){
    s.context=c;s.page=await c.newPage();s.tabs.push(s.page);c.on('page',p=>{if(!s.creating&&!s.tabs.includes(p))void p.close().catch(()=>{})});return await navigate(s,u.href);
   }catch(e){await close();throw e}finally{s.active=false;if(session===s)arm(s)}
  },
+ current:()=>session?{session:session.id,tab:session.tabs.indexOf(session.page)+1,demo:session.demo,draftMode:session.draftMode,visible}:null,
  inspect:id=>run(id,inspect),
  reload:(id,discard=false)=>run(id,async s=>{
   const blocked=await navigationGuard(s,discard);if(blocked)return blocked;
@@ -105,7 +106,7 @@ export function createLive(root,{ttl=300000,onClose=()=>{}}={}){
   s.creating=true;try{s.page=await s.context.newPage();s.tabs.push(s.page)}finally{s.creating=false}
   return navigate(s,r.href);
  }),
- switchTab:(id,tab)=>run(id,async s=>{if(!s.tabs[tab-1])throw new StaleReferenceError('Unknown tab');s.page=s.tabs[tab-1];s.status=s.statuses?.get(s.page)??null;return inspect(s)}),
+ switchTab:(id,tab)=>run(id,async s=>{if(!s.tabs[tab-1])throw new StaleReferenceError('Unknown tab');s.page=s.tabs[tab-1];if(visible)await s.page.bringToFront();s.status=s.statuses?.get(s.page)??null;return inspect(s)}),
  closeTab:(id,tab)=>run(id,async s=>{
   if(!s.tabs[tab-1])throw new StaleReferenceError('Unknown tab');
   if(s.tabs.length===1)return {blocked:true,reason:'last_tab',session:s.id};
