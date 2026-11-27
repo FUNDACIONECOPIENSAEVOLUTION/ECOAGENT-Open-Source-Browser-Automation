@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {readURL,requestAllowed,pageOutcome} from './desktop-policy.mjs';
-import {canDraft,validateDraft,findRef} from './desktop-live-policy.mjs';
+import {canDraft,validateDraft,findRef,StaleReferenceError} from './desktop-live-policy.mjs';
 import {sensitiveField} from '../privacy.mjs';
 import {createHash} from 'node:crypto';
 const fixture='https://example.org/ecoagent-local-fixture';
@@ -9,9 +9,9 @@ const fixtureDownload=fixture+'/document.txt';
 const sampleDocument=Buffer.from('ECOAGENT synthetic document for offline testing.\n','utf8');
 const sampleHash=createHash('sha256').update(sampleDocument).digest('hex');
 const html='<html><head><title>ECOAGENT local form fixture</title></head><body><h1>Draft only</h1><form><label>Project <input name="project" required></label><label>Summary <textarea name="summary"></textarea></label><label>Category <select name="category"><option>Research</option><option>Environment</option></select></label><label>Accept demo <input type="checkbox" name="demoConsent"></label><label>Sample document <input type="file" name="demoDocument"></label><label>Password <input type="password" name="password"></label><button type="submit">Submit</button><a href="'+fixtureNext+'">Next page</a></form></body></html>';
-export function createLive(root,{ttl=300000}={}){
+export function createLive(root,{ttl=300000,onClose=()=>{}}={}){
  let session=null;
- async function close(){const s=session;session=null;if(s){clearTimeout(s.timer);await s.browser.close().catch(()=>{})}return {closed:!!s}}
+ async function close(){const s=session;session=null;if(s){clearTimeout(s.timer);try{await s.browser.close().catch(()=>{})}finally{onClose(s.id)}}return {closed:!!s}}
  function arm(s){clearTimeout(s.timer);s.timer=setTimeout(()=>{if(session===s&&!s.active)void close();else if(session===s)arm(s)},ttl);s.timer.unref()}
  function lookup(id){if(!session||session.id!==id)throw Error('Unknown live session');return session}
  async function assertSafePage(s){
@@ -54,7 +54,7 @@ export function createLive(root,{ttl=300000}={}){
   if(changed&&!discard)return {blocked:true,reason:'unsaved_draft',changedFields:changed,session:s.id,snapshot:s.snapshot,submitted:false};
   return null;
  }
- async function run(id,fn){const s=lookup(id);s.active=true;try{return await fn(s)}catch(e){await close();throw e}finally{s.active=false;if(session===s)arm(s)}}
+ async function run(id,fn){const s=lookup(id);s.active=true;try{return await fn(s)}catch(e){if(!(e instanceof StaleReferenceError))await close();throw e}finally{s.active=false;if(session===s)arm(s)}}
  return {
  async open(url,demo=false,draftMode=false){
   if(session)throw Error('Close current live session first');const u=readURL(demo?fixture:url);
