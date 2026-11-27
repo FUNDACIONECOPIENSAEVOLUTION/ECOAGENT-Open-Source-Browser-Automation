@@ -11,12 +11,12 @@ import {createLive} from './desktop-live.mjs';
 import {createLivePool} from './live-pool.mjs';
 import {createSubmissionLedger} from './submission-ledger.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.41.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.42.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.41.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.42.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -44,7 +44,7 @@ server.tool('ecoagent_follow','Follow an exact same-origin link from the current
 server.tool('ecoagent_close','Close a temporary navigation snapshot session.',{session:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session})=>exclusive(()=>sessions.close(session)));
 // Set before lazy Playwright import; keep existing installed browser location.
 process.env.PLAYWRIGHT_BROWSERS_PATH ||= join(root,'tools','browsers');
-const submissionLedger=createSubmissionLedger();
+const submissionLedger=createSubmissionLedger({directory:join(root,'local-config','submission-ledger')});
 const live=createLivePool({factory:onClose=>createLive(root,{onClose,visible:process.env.ECOAGENT_VISIBLE_BROWSER==='1',ledger:submissionLedger}),onClose:id=>control.sessionClosed(id)});
 const liveRef={session:sessionId,snapshot:z.string().uuid(),element:z.string().uuid()};
 server.tool('ecoagent_live_open','Open an independent temporary anonymous public browser on an approved origin. No login, submission or writes.',{url:z.string().url().max(2048)},{readOnlyHint:true,openWorldHint:true},async({url})=>exclusive(()=>live.open(url)));
@@ -158,7 +158,7 @@ server.tool('ecoagent_submit_form','Execute one locally approved exact static PO
  return live.submitForm(args.session,args.snapshot,args.element,plan);
 }));
 server.tool('ecoagent_submission_evidence','Read bounded current response evidence after a submission attempt. HTTP success alone is not confirmation.',{session:sessionId},{readOnlyHint:true,openWorldHint:false},async({session})=>exclusive(()=>live.submissionEvidence(session)));
-server.tool('ecoagent_submission_history','List in-memory submission attempts without form values. Does not establish application confirmation.',{},{readOnlyHint:true,openWorldHint:false},async()=>exclusive(async()=>submissionLedger.list()));
+server.tool('ecoagent_submission_history','List persistent and current submission attempts without form values. Does not establish application confirmation.',{},{readOnlyHint:true,openWorldHint:false},async()=>exclusive(async()=>submissionLedger.list()));
 server.tool('ecoagent_reload','Reload the active browser tab. Blocks if unsaved draft fields or attachments exist unless the user explicitly agrees to discard them. Never submit a form.',{session:sessionId,discard:z.boolean().default(false)},{readOnlyHint:false,destructiveHint:true,openWorldHint:true},async({session,discard})=>exclusive(()=>live.reload(session,discard)));
 server.tool('ecoagent_history','Navigate back or forward in the active browser tab. Blocks unsaved draft changes unless the user explicitly agrees to discard them.',{session:sessionId,direction:z.enum(['back','forward']),discard:z.boolean().default(false)},{readOnlyHint:false,destructiveHint:true,openWorldHint:true},async({session,direction,discard})=>exclusive(()=>live.history(session,direction,discard)));
 // Only local HTTP UI can take/release control or perform these limited actions.

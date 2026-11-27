@@ -1,0 +1,3 @@
+# ECOAGENT v0.42.0 — durable submission reservation
+
+Non-demo attempts reserve an exclusive file before POST and sync it to disk. Result stored separately. A restart retains exact endpoint/payload duplicate protection, including incomplete reservations; synthetic tests do not persist. Records stored under local-config/submission-ledger, no raw field values or file contents. History is bounded to 100 displayed records; protection is per installation directory, not across D/F or different payloads. No automatic deletion or retry. Directory permissions depend on Windows user ACL. Official receipt download, dynamic/authenticated operations and real portal acceptance remain pending. This branch builds on pending PR 19 and must not merge until its prerequisite passes.
