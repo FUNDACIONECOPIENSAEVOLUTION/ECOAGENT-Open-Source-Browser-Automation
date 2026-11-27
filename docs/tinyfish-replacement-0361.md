@@ -1,0 +1,3 @@
+# ECOAGENT: browser transport for ChatGPT
+
+ChatGPT interprets screenshots and creates all artifacts. ECOAGENT executes browser operations only. v0.36.1 adds label search beyond the initial snapshot and element reveal for visual navigation. Search returns labels rather than field values; actions use fresh references. Current scope remains approved anonymous origins; no authenticated session, arbitrary external dynamic clicks, external upload/submission or CAPTCHA bypass. Acceptance gates: Windows visible browser and handoff; real approved public screenshot into ChatGPT; dynamic authorized form actions; exact artifact transfer; external upload and explicit submission receipt. Do not declare TinyFish replacement until these pass. CI pending.
