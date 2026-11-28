@@ -153,7 +153,24 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
    if(!label.toLowerCase().includes(q))return [];
    const r=e.getBoundingClientRect();return [{label,tag:e.tagName.toLowerCase(),inViewport:r.bottom>0&&r.right>0&&r.top<innerHeight&&r.left<innerWidth}];
   }).slice(0,40),needle);
-  return {session:s.id,matches,truncated:matches.length===40};
+  // Search only approved navigation links; keep other matches informational.
+  // Refresh references on each search so no stale handles survive.
+  const fresh=await inspect(s);
+  if(fresh.blocked)return fresh;
+  const links=await s.page.locator('a[href]').elementHandles();
+  const retained=new Set();const actionable=[];
+  try{
+   for(const handle of links.slice(0,1000)){
+    if(actionable.length>=40)break;
+    if(!await handle.isVisible().catch(()=>false))continue;
+    const info=await handle.evaluate(e=>({tag:'a',type:'',name:'',label:(e.getAttribute('aria-label')||e.innerText||e.querySelector('img[alt]')?.alt||'').trim().replace(/\s+/g,' ').slice(0,160),href:e.href,download:e.hasAttribute('download')})).catch(()=>null);
+    if(!info||info.download||!info.label.toLowerCase().includes(needle)||sensitiveField(info))continue;
+    let href;try{const u=readURL(info.href);if(u.origin!==s.origin||(s.demo&&![fixture,fixtureNext].includes(u.href)))continue;href=u.href}catch{continue}
+    const ref=randomUUID();s.refs.set(ref,{handle,info,href});retained.add(handle);
+    actionable.push({id:ref,label:info.label,tag:'a',follow:true,inViewport:await handle.evaluate(e=>{const r=e.getBoundingClientRect();return r.bottom>0&&r.right>0&&r.top<innerHeight&&r.left<innerWidth})});
+   }
+  }finally{for(const h of links)if(!retained.has(h))await h.dispose().catch(()=>{})}
+  return {session:s.id,snapshot:s.snapshot,matches,actionable,truncated:matches.length===40||actionable.length===40||links.length>1000};
  }),
  reveal:(id,ref,element)=>run(id,async s=>{
   await assertSafePage(s);
@@ -198,8 +215,10 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
   return {...await recordNavigation(s,r),history:direction,navigationConfirmed:true,submitted:false};
  }),
  follow:(id,ref,element)=>run(id,async s=>{
+  await assertSafePage(s);
   const r=findRef(ref,s.snapshot,s.refs,element);
-  if(!r.href||s.status!==200)throw Error('Only approved links');
+  if(!r.href||s.status!==200)throw new StaleReferenceError('Only approved links');
+  if(!await r.handle.evaluate((e,url)=>e.isConnected&&e.tagName==='A'&&e.href===url&&!e.hasAttribute('download'),r.href))throw new StaleReferenceError('Link changed');
   const blocked=await navigationGuard(s,false);
   if(blocked)return blocked;
   return navigate(s,r.href);

@@ -11,12 +11,12 @@ import {createLive} from './desktop-live.mjs';
 import {createLivePool} from './live-pool.mjs';
 import {createSubmissionLedger} from './submission-ledger.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.52.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.53.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.52.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.53.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -52,7 +52,7 @@ server.tool('ecoagent_live_demo','Open an offline synthetic form; optional dynam
 server.tool('ecoagent_live_inspect','Inspect visible elements in the current temporary live browser. No field values returned.',{session:sessionId},{readOnlyHint:true},async({session})=>exclusive(()=>live.inspect(session)));
 server.tool('ecoagent_live_follow','Navigate to an approved same-origin link from the current live snapshot. No arbitrary click.',liveRef,{readOnlyHint:true,openWorldHint:true},async({session,snapshot,element})=>exclusive(()=>live.follow(session,snapshot,element)));
 server.tool('ecoagent_scroll','Scroll an approved public or offline page and refresh visible element references. No writes or submission.',{session:sessionId,direction:z.enum(['up','down','top','bottom']),amount:z.number().int().min(100).max(2000).default(600)},{readOnlyHint:true,openWorldHint:true},async({session,direction,amount})=>exclusive(()=>live.scroll(session,direction,amount)));
-server.tool('ecoagent_locate','Find matching visible page labels beyond the initial snapshot, without reading form values or performing actions.',{session:sessionId,query:z.string().min(1).max(160)},{readOnlyHint:true,openWorldHint:true},async({session,query})=>exclusive(()=>live.locate(session,query)));
+server.tool('ecoagent_locate','Find matching visible labels and fresh actionable references for approved same-origin links beyond the initial snapshot. No actions or form values.',{session:sessionId,query:z.string().min(1).max(160)},{readOnlyHint:true,openWorldHint:true},async({session,query})=>exclusive(()=>live.locate(session,query)));
 server.tool('ecoagent_reveal','Scroll an inspected element into view and refresh the current snapshot. No click or submission.',liveRef,{readOnlyHint:true,openWorldHint:true},async({session,snapshot,element})=>exclusive(()=>live.reveal(session,snapshot,element)));
 server.tool('ecoagent_click_link','Activate an inspected approved same-origin navigation link by navigating to its verified destination. No arbitrary JavaScript button or submission.',liveRef,{readOnlyHint:true,openWorldHint:true},async({session,snapshot,element})=>exclusive(()=>live.clickLink(session,snapshot,element)));
 server.tool('ecoagent_live_draft','Fill or select a non-sensitive field in offline demo or explicit static draft mode. No submission or upload.',{...liveRef,value:z.string().max(2000)},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session,snapshot,element,value})=>exclusive(()=>live.fill(session,snapshot,element,value)));
