@@ -11,12 +11,12 @@ import {createLive} from './desktop-live.mjs';
 import {createLivePool} from './live-pool.mjs';
 import {createSubmissionLedger} from './submission-ledger.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.54.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.55.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.54.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.55.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -93,14 +93,14 @@ server.tool('ecoagent_request_demo_approval','Request local human approval for a
  const s=await live.inspect(session);if(!s.demo)throw Error('Demo session required');
  await ensureLocalUI();
  const a=approvals.request({session,action,description:action==='demo-attach'?'Attach built-in synthetic test document':'Download built-in synthetic test document',digest:actionDigest(session,action)});
- return {id:a.id,state:a.state,expires:a.expires,instruction:'Open the local approval URL printed in runtime diagnostics. No approval can be granted through MCP.'};
+ return {id:a.id,state:a.state,expires:a.expires,instruction:'Use ecoagent_open_approval_panel to review this request locally. No approval can be granted through MCP.'};
 }));
 server.tool('ecoagent_approved_demo_action','Execute a single locally approved synthetic document operation; exact session and action bound. No external submission.',{session:sessionId,approval:sessionId,action:z.enum(['demo-attach','demo-download'])},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session,approval,action})=>exclusive(async()=>{
  approvals.consume(approval,{session,action,digest:actionDigest(session,action)});
  return action==='demo-attach'?live.attachDemo(session):live.downloadDemo(session);
 }));
 server.tool('ecoagent_open_approval_panel','Open the local approval panel in a dedicated visible browser. No approval, file selection or submission is performed.',{},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async()=>exclusive(async()=>{const ui=await ensureLocalUI();const {openLocalPanel}=await import('./local-panel.mjs');return openLocalPanel(ui.url)}));
-server.tool('ecoagent_prepare_documents','Start opt-in local document selection interface. Only the human selects files; no remote path or file contents accepted.',{},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async()=>exclusive(async()=>{await ensureLocalUI();return {ready:true,instruction:'Open local UI URL printed in runtime diagnostics. Select files locally; no external upload.'}}));
+server.tool('ecoagent_prepare_documents','Start opt-in local document selection interface. Only the human selects files; no remote path or file contents accepted.',{},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async()=>exclusive(async()=>{const ui=await ensureLocalUI();const {openLocalPanel}=await import('./local-panel.mjs');const panel=await openLocalPanel(ui.url);return {...panel,ready:true,instruction:'Select files in the visible local panel. No external upload or automatic approval.'}}));
 server.tool('ecoagent_document_inventory','List metadata for files selected locally or received through verified file transfer. Does not return contents or local paths.',{},{readOnlyHint:true,openWorldHint:false},async()=>exclusive(async()=>({documents:vault.list()})));
 const {createHash}=await import('node:crypto');
 const attachmentArgs={...liveRef,document:sessionId};
