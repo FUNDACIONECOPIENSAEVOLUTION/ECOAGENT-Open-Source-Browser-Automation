@@ -3,10 +3,11 @@ export function createApprovals({clock=Date.now,ttl=120000,limit=8}={}){
  const items=new Map();
  const expire=()=>{for(const [id,a] of items)if(clock()>=a.expires)items.delete(id)};
  return {
- request({session,action,description,digest}){
+ request({session,action,description,digest,notAfter=Infinity}){
   expire();
   if(items.size>=limit||!['demo-attach','demo-download','document-attach','form-submit','dynamic-control'].includes(action)||typeof session!=='string'||!session||typeof description!=='string'||description.length>300||!(/^[a-f0-9]{64}$/).test(digest))throw Error('Invalid approval request');
-  const id=randomUUID();const a={id,session,action,description,digest,expires:clock()+ttl,state:'pending'};items.set(id,a);return {...a};
+  const now=clock();const expires=Math.min(now+ttl,notAfter);if(!(expires>now))throw Error('Approval dependency expired');
+  const id=randomUUID();const a={id,session,action,description,digest,expires,state:'pending'};items.set(id,a);return {...a};
  },
  list(){expire();return [...items.values()].map(a=>({...a}))},
  deadline(session){expire();return Math.max(0,...[...items.values()].filter(a=>a.session===session&&['pending','approved'].includes(a.state)).map(a=>a.expires))},
