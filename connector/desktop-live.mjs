@@ -289,7 +289,7 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
   if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Static draft required');
   const r=findRef(ref,s.snapshot,s.refs,element);
   if(r.info.tag!=='input'||r.info.type!=='file'||r.info.disabled||!await r.handle.evaluate(e=>e.isConnected&&e.type==='file'&&!e.disabled))throw Error('Invalid file input');
-  return {session:s.id,snapshot:s.snapshot,element,url:s.page.url(),tab:s.tabs.indexOf(s.page)+1,label:String(r.info.label).trim().slice(0,160),multiple:await r.handle.evaluate(e=>e.multiple),accept:await r.handle.evaluate(e=>e.accept)};
+  return {session:s.id,snapshot:s.snapshot,element,url:s.page.url(),tab:s.tabs.indexOf(s.page)+1,label:String(r.info.label).trim().slice(0,160),multiple:await r.handle.evaluate(e=>e.multiple),accept:await r.handle.evaluate(e=>e.accept),fileCount:await r.handle.evaluate(e=>e.files.length)};
  }),
  attachDocument:(id,ref,element,document)=>run(id,async s=>{
   if(!(s.demo||s.draftMode)||s.status!==200)throw Error('Static draft required');
