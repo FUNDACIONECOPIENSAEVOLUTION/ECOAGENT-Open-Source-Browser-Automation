@@ -9,6 +9,7 @@ export function createApprovals({clock=Date.now,ttl=120000,limit=8}={}){
   const id=randomUUID();const a={id,session,action,description,digest,expires:clock()+ttl,state:'pending'};items.set(id,a);return {...a};
  },
  list(){expire();return [...items.values()].map(a=>({...a}))},
+ deadline(session){expire();return Math.max(0,...[...items.values()].filter(a=>a.session===session&&['pending','approved'].includes(a.state)).map(a=>a.expires))},
  decide(id,allow){expire();const a=items.get(id);if(!a||a.state!=='pending'||typeof allow!=='boolean')throw Error('Unknown or decided approval');a.state=allow?'approved':'denied';return {...a}},
  consume(id,{session,action,digest}){expire();const a=items.get(id);if(!a||a.state!=='approved'||a.session!==session||a.action!==action||a.digest!==digest)throw Error('Approval missing or mismatched');items.delete(id);return true},
  clear(session){for(const [id,a] of items)if(a.session===session)items.delete(id)}
