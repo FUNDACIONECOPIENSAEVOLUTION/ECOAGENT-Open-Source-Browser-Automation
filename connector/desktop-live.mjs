@@ -137,8 +137,8 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
   s.handoff=true;await s.page.bringToFront();return {humanReady:true,authenticationPermit:!!s.humanAuth};
  }),
  humanRelease:(id)=>run(id,async s=>{
-  s.humanAuth=null;
   if(await authenticationRequired(s))return {blocked:true,reason:'authentication_required'};
+  s.humanAuth=null;
   const state=await inspect(s);s.handoff=false;return state;
  }),
  current:()=>session?{session:session.id,tab:session.tabs.indexOf(session.page)+1,demo:session.demo,draftMode:session.draftMode,handoff:!!session.handoff,visible}:null,

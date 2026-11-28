@@ -11,12 +11,12 @@ import {createLive} from './desktop-live.mjs';
 import {createLivePool} from './live-pool.mjs';
 import {createSubmissionLedger} from './submission-ledger.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.54.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.55.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.54.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.55.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -184,7 +184,7 @@ const manual={
  async execute(action,args={}){
   if(busy)throw Error('Browser busy');busy=true;
   try{
-   if(action==='take'){const state=control.status();if(!state.requested||!state.session)throw Error('No pending takeover');await live.humanTake(state.session);return control.take()}
+   if(action==='take'){const state=control.status();if(!state.requested||!state.session)throw Error('No pending takeover');const ready=await live.humanTake(state.session);return {...control.take(),...ready}}
    if(action==='release'){const id=control.assertHuman();const state=await live.humanRelease(id);if(state.manualRequired||state.blocked)return {blocked:true,reason:state.reason,...control.status()};return {...control.release(),resumed:true,session:id,snapshot:state.snapshot}}
    const id=control.assertHuman();
    if(action==='inspect'||action==='preview')return {blocked:true,reason:'Use the visible browser during manual control'};
@@ -200,7 +200,7 @@ const manual={
  }
 };
 server.tool('ecoagent_request_manual','Request human takeover of current demo/static draft browser. Only local UI can accept and release.',{session:sessionId},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session})=>exclusive(async()=>{
- await ensureLocalUI();const s=await live.inspect(session);if(!(s.demo||s.draftMode||s.manualRequired))throw Error('Draft or authentication handoff required');return control.request(session);
+ await ensureLocalUI();const s=await live.inspect(session);if(!(s.demo||s.draftMode||s.manualRequired))throw Error('Draft or authentication handoff required');const requested=control.request(session);return {...requested,authenticationRequired:!!s.manualRequired,localAction:'Open approval panel and take control in visible browser'};
 }));
 server.tool('ecoagent_control_status','Read current AI/human control mode.',{},{readOnlyHint:true,openWorldHint:false},async()=>result({...control.status(),browser:live.current()}));
 await server.connect(new StdioServerTransport());
