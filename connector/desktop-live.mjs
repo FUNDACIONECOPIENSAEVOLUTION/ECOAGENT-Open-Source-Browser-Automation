@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {readURL,requestAllowed,pageOutcome} from './desktop-policy.mjs';
+import {readURL,requestAllowed,pageOutcome,safeReadRedirect} from './desktop-policy.mjs';
 import {canDraft,validateDraft,findRef,StaleReferenceError} from './desktop-live-policy.mjs';
 import {sensitiveField} from '../privacy.mjs';
 import {createHash} from 'node:crypto';
@@ -118,7 +118,7 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
     if(demo){if(r.request().url()===fixtureDownload&&r.request().method()==='GET')return r.fulfill({status:200,headers:{'content-type':'text/plain','content-disposition':'attachment; filename="ecoagent-demo.txt"'},body:sampleDocument});if([fixture,fixtureNext].includes(r.request().url())&&r.request().method()==='GET')return r.fulfill({status:200,contentType:'text/html',body:r.request().url()===fixture?(s.dynamicDemo?dynamicHTML:html):'<html><title>Second page</title><body>Offline navigation successful</body></html>'});return r.abort()}
     if(!requestAllowed(r.request().url(),s.origin,r.request().method()))return r.abort();
     if(s.draftMode){try{readURL(r.request().url())}catch{return r.abort()}}
-    try{const res=await r.fetch({maxRedirects:0,timeout:10000});try{if(res.status()>=300&&res.status()<400)await r.fulfill({status:403,contentType:'text/plain',body:'Redirect blocked'});else await r.fulfill({response:res})}finally{await res.dispose()}}catch{await r.abort().catch(()=>{})}
+    try{const res=await r.fetch({maxRedirects:0,maxRetries:0,timeout:10000});try{if(res.status()>=300&&res.status()<400&&res.status()!==304){const next=safeReadRedirect(res.headers().location,req.url(),s.origin,res.status(),req.method());if(!next)return await r.fulfill({status:403,contentType:'text/plain',body:'Read redirect blocked by origin or URL policy'});let hops=0;for(let prev=req.redirectedFrom();prev;prev=prev.redirectedFrom())hops++;if(hops>=4)return await r.fulfill({status:508,contentType:'text/plain',body:'Read redirect limit reached'});return await r.fulfill({response:res,headers:{...res.headers(),location:next}})}return await r.fulfill({response:res})}finally{await res.dispose()}}catch{if(req.isNavigationRequest())await r.fulfill({status:502,contentType:'text/plain',body:'Upstream read failed or timed out'}).catch(()=>r.abort().catch(()=>{}));else await r.abort().catch(()=>{})}
    });
    await c.routeWebSocket('**/*',ws=>ws.close());
    s.context=c;s.page=await c.newPage();s.tabs.push(s.page);c.on('page',p=>{if(!s.creating&&!s.tabs.includes(p))void p.close().catch(()=>{})});return await navigate(s,u.href);
