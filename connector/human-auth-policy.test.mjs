@@ -1,3 +1,5 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {authEndpoint,safeAuthRedirect} from './human-auth-policy.mjs';
+import test from 'node:test';import assert from 'node:assert/strict';import {authEndpoint,safeAuthRedirect,canRenewAuthPermit} from './human-auth-policy.mjs';
 test('native same-origin login target only',()=>{const origin='https://example.org',form={action:origin+'/login',method:'post',target:'',override:false};assert.equal(authEndpoint(form,origin),form.action);for(const change of [{method:'get'},{override:true},{target:'_blank'},{action:'https://www.ungm.org/login'},{action:origin+'/login?token=x'}])assert.throws(()=>authEndpoint({...form,...change},origin))});
 test('only safe same-origin GET redirects',()=>{const u='https://example.org/login';assert.equal(safeAuthRedirect('/home',u,303),'https://example.org/home');for(const [l,s] of [['/home',307],['https://www.ungm.org/',302],['/home?token=x',302]])assert.equal(safeAuthRedirect(l,u,s),null)});
+
+test('renewal does not replace a live unused authentication permit',()=>{assert.equal(canRenewAuthPermit({expires:200,permit:{used:()=>false}},100),false);assert.equal(canRenewAuthPermit({expires:200,permit:{used:()=>true}},100),true);assert.equal(canRenewAuthPermit({expires:100,permit:{used:()=>false}},100),true);assert.equal(canRenewAuthPermit(null,100),true)});

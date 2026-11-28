@@ -6,7 +6,7 @@ import {canDraft,validateDraft,findRef,StaleReferenceError} from './desktop-live
 import {sensitiveField} from '../privacy.mjs';
 import {createHash} from 'node:crypto';
 import {createPostPermit} from './submission-permit.mjs';
-import {authEndpoint,safeAuthRedirect} from './human-auth-policy.mjs';
+import {authEndpoint,safeAuthRedirect,canRenewAuthPermit} from './human-auth-policy.mjs';
 import {createSubmissionLedger} from './submission-ledger.mjs';
 import {storeReceipt} from './receipt-store.mjs';
 import {join} from 'node:path';
@@ -126,9 +126,11 @@ export function createLive(root,{ttl=600000,onClose=()=>{},visible=false,ledger=
    s.context=c;s.page=await c.newPage();s.tabs.push(s.page);c.on('page',p=>{if(!s.creating&&!s.tabs.includes(p))void p.close().catch(()=>{})});return await navigate(s,u.href);
   }catch(e){await close();throw e}finally{s.active=false;if(session===s)arm(s)}
  },
- humanTake:(id)=>run(id,async s=>{
+ humanTake:(id,renew=false)=>run(id,async s=>{
   if(!visible)throw new StaleReferenceError('Visible browser required');
-  if(!s.demo&&await authenticationRequired(s)){
+  const needsAuth=!s.demo&&await authenticationRequired(s);
+  if(renew&&(!needsAuth||!s.handoff||!canRenewAuthPermit(s.humanAuth)))throw new StaleReferenceError('Authentication renewal unavailable');
+  if(needsAuth){
    const forms=await s.page.locator('form').evaluateAll(nodes=>nodes.filter(f=>f.querySelector('input[type=password],input[autocomplete=one-time-code]')).map(f=>({action:f.action,method:f.method,target:f.target,override:!!f.querySelector('[formaction],[formmethod],[formtarget]')})));
    if(forms.length!==1)throw new StaleReferenceError('One native authentication form required');
    const endpoint=authEndpoint(forms[0],s.origin);
@@ -137,8 +139,8 @@ export function createLive(root,{ttl=600000,onClose=()=>{},visible=false,ledger=
   s.handoff=true;await s.page.bringToFront();return {humanReady:true,authenticationPermit:!!s.humanAuth};
  }),
  humanRelease:(id)=>run(id,async s=>{
-  s.humanAuth=null;
   if(await authenticationRequired(s))return {blocked:true,reason:'authentication_required'};
+  s.humanAuth=null;
   const state=await inspect(s);s.handoff=false;return state;
  }),
  current:()=>session?{session:session.id,tab:session.tabs.indexOf(session.page)+1,demo:session.demo,draftMode:session.draftMode,handoff:!!session.handoff,visible}:null,
