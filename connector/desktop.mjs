@@ -11,12 +11,12 @@ import {createLive} from './desktop-live.mjs';
 import {createLivePool} from './live-pool.mjs';
 import {createSubmissionLedger} from './submission-ledger.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.50.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.51.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.50.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.51.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -45,7 +45,7 @@ server.tool('ecoagent_close','Close a temporary navigation snapshot session.',{s
 // Set before lazy Playwright import; keep existing installed browser location.
 process.env.PLAYWRIGHT_BROWSERS_PATH ||= join(root,'tools','browsers');
 const submissionLedger=createSubmissionLedger({directory:join(root,'local-config','submission-ledger')});
-const live=createLivePool({factory:onClose=>createLive(root,{onClose,visible:process.env.ECOAGENT_VISIBLE_BROWSER==='1',ledger:submissionLedger}),onClose:id=>control.sessionClosed(id)});
+const live=createLivePool({factory:onClose=>createLive(root,{onClose,visible:process.env.ECOAGENT_VISIBLE_BROWSER==='1',ledger:submissionLedger,approvalDeadline:id=>approvals.deadline(id)}),onClose:id=>{approvals.clear(id);control.sessionClosed(id)}});
 const liveRef={session:sessionId,snapshot:z.string().uuid(),element:z.string().uuid()};
 server.tool('ecoagent_live_open','Open an independent temporary anonymous public browser on an approved origin. No login, submission or writes.',{url:z.string().url().max(2048)},{readOnlyHint:true,openWorldHint:true},async({url})=>exclusive(()=>live.open(url)));
 server.tool('ecoagent_live_demo','Open an offline synthetic form; optional dynamic fixture enables only built-in JavaScript. No external requests or submission.',{dynamic:z.boolean().optional()},{readOnlyHint:true,openWorldHint:false},async({dynamic})=>exclusive(()=>live.open('',true,false,dynamic===true)));
