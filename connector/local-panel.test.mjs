@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {validatePanelURL} from './local-panel.mjs';
+test('panel launcher accepts only exact loopback capability URL',()=>{const p='/approval/'+'a'.repeat(48),u='http://127.0.0.1:8793'+p;assert.equal(validatePanelURL(u),u);for(const v of ['https://127.0.0.1:8793'+p,'http://localhost:8793'+p,'http://127.0.0.1:8794'+p,u+'?x=1',u+'#x',u+'/list','http://user@127.0.0.1:8793'+p])assert.throws(()=>validatePanelURL(v))});
