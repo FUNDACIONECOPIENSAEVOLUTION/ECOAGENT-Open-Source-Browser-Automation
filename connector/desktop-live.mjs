@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {classifyReadError} from './navigation-diagnostics.mjs';
 import {readURL,requestAllowed,pageOutcome,safeReadRedirect} from './desktop-policy.mjs';
+import {createResourceDiagnostics} from './resource-diagnostics.mjs';
 import {canDraft,validateDraft,findRef,StaleReferenceError} from './desktop-live-policy.mjs';
 import {sensitiveField} from '../privacy.mjs';
 import {createHash} from 'node:crypto';
@@ -56,7 +57,7 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
     s.refs.set(id,{handle,info,href});fields.push({id,tag:info.tag,type:info.type,label:String(info.label).replace(/\s+/g,' ').trim().slice(0,160),required:info.required,draft,toggle,attachment,follow:!!href,inViewport:await handle.evaluate(e=>{const r=e.getBoundingClientRect();return r.bottom>0&&r.right>0&&r.top<innerHeight&&r.left<innerWidth}),click:!!(s.dynamicDemo&&s.page.url()===fixture&&info.tag==='button'&&info.type==='button'&&!info.disabled&&await handle.evaluate(e=>['expand','nextStage','previousStage'].includes(e.id)))});
    }
   }finally{for(const h of nodes)if(![...s.refs.values()].some(r=>r.handle===h))await h.dispose().catch(()=>{})}
-  return {session:s.id,snapshot:s.snapshot,demo:s.demo,draftMode:s.draftMode,dynamicDraft:!!s.dynamicDraft,tab:s.tabs.indexOf(s.page)+1,url:s.page.url(),title:await s.page.title(),status:s.status,outcome:pageOutcome(s.status),text:(await s.page.locator('body').innerText({timeout:5000})).slice(0,5000),elements:fields};
+  return {session:s.id,snapshot:s.snapshot,demo:s.demo,draftMode:s.draftMode,dynamicDraft:!!s.dynamicDraft,tab:s.tabs.indexOf(s.page)+1,url:s.page.url(),title:await s.page.title(),status:s.status,outcome:pageOutcome(s.status),resourceDiagnostics:s.resources.snapshot(),text:(await s.page.locator('body').innerText({timeout:5000})).slice(0,5000),elements:fields};
  }
  async function recordNavigation(s,r){s.status=r?.status()??null;s.statuses ||= new Map();s.statuses.set(s.page,s.status);return inspect(s)}
  async function navigate(s,url){const r=await s.page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});return recordNavigation(s,r)}
@@ -92,7 +93,7 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
   // Import lazily: health and invalid-input tests work without browser installation.
   const {chromium}=await import('playwright');
   const browser=await chromium.launch({headless:!visible,chromiumSandbox:true,timeout:15000,env:Object.fromEntries(Object.entries(process.env).filter(([k])=>!/(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)/i.test(k))),});
-  const s={id:randomUUID(),browser,origin:u.origin,demo,draftMode,dynamicDemo:demo&&dynamicDemo,dynamicDraft:!demo&&draftMode&&dynamicDraft,tabs:[],refs:new Map(),active:true};session=s;
+  const s={id:randomUUID(),browser,origin:u.origin,demo,draftMode,dynamicDemo:demo&&dynamicDemo,dynamicDraft:!demo&&draftMode&&dynamicDraft,tabs:[],refs:new Map(),active:true,resources:createResourceDiagnostics()};session=s;
   try{
    const c=await browser.newContext({acceptDownloads:demo,serviceWorkers:'block',javaScriptEnabled:s.dynamicDemo||s.dynamicDraft||(!demo&&!draftMode)});
    await c.route('**/*',async r=>{
@@ -117,9 +118,9 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
      try{const res=await r.fetch({maxRedirects:0,maxRetries:0,timeout:15000});try{s.postStatus=res.status();if(res.status()>=300&&res.status()<400)return r.fulfill({status:409,contentType:'text/plain',body:'Submission response redirect requires manual review'});return await r.fulfill({response:res})}finally{await res.dispose()}}catch{await r.abort().catch(()=>{});return}
     }
     if(demo){if(r.request().url()===fixtureDownload&&r.request().method()==='GET')return r.fulfill({status:200,headers:{'content-type':'text/plain','content-disposition':'attachment; filename="ecoagent-demo.txt"'},body:sampleDocument});if([fixture,fixtureNext].includes(r.request().url())&&r.request().method()==='GET')return r.fulfill({status:200,contentType:'text/html',body:r.request().url()===fixture?(s.dynamicDemo?dynamicHTML:html):'<html><title>Second page</title><body>Offline navigation successful</body></html>'});return r.abort()}
-    if(!requestAllowed(r.request().url(),s.origin,r.request().method()))return r.abort();
-    if(s.draftMode){try{readURL(r.request().url())}catch{return r.abort()}}
-    try{const res=await r.fetch({maxRedirects:0,maxRetries:0,timeout:15000});try{if(res.status()>=300&&res.status()<400&&res.status()!==304){const next=safeReadRedirect(res.headers().location,req.url(),s.origin,res.status(),req.method());if(!next)return await r.fulfill({status:403,contentType:'text/plain',body:'Read redirect blocked by origin or URL policy'});let hops=0;for(let prev=req.redirectedFrom();prev;prev=prev.redirectedFrom())hops++;if(hops>=4)return await r.fulfill({status:508,contentType:'text/plain',body:'Read redirect limit reached'});return await r.fulfill({response:res,headers:{...res.headers(),location:next}})}return await r.fulfill({response:res})}finally{await res.dispose()}}catch(error){if(req.isNavigationRequest()){const diagnostic=classifyReadError(error);await r.fulfill({status:diagnostic==='upstream_timeout'?504:502,contentType:'text/plain',body:'ECOAGENT read diagnostic: '+diagnostic}).catch(()=>r.abort().catch(()=>{}))}else await r.abort().catch(()=>{})}
+    if(!requestAllowed(req.url(),s.origin,req.method())){s.resources.record('policy_block',req.resourceType());return r.abort()}
+    if(s.draftMode){try{readURL(req.url())}catch{s.resources.record('draft_url_block',req.resourceType());return r.abort()}}
+    try{const res=await r.fetch({maxRedirects:0,maxRetries:0,timeout:15000});try{if(res.status()>=300&&res.status()<400&&res.status()!==304){const next=safeReadRedirect(res.headers().location,req.url(),s.origin,res.status(),req.method());if(!next){s.resources.record('redirect_block',req.resourceType());return await r.fulfill({status:403,contentType:'text/plain',body:'Read redirect blocked by origin or URL policy'})}let hops=0;for(let prev=req.redirectedFrom();prev;prev=prev.redirectedFrom())hops++;if(hops>=4)return await r.fulfill({status:508,contentType:'text/plain',body:'Read redirect limit reached'});return await r.fulfill({response:res,headers:{...res.headers(),location:next}})}return await r.fulfill({response:res})}finally{await res.dispose()}}catch(error){s.resources.record('upstream_error',req.resourceType());if(req.isNavigationRequest()){const diagnostic=classifyReadError(error);await r.fulfill({status:diagnostic==='upstream_timeout'?504:502,contentType:'text/plain',body:'ECOAGENT read diagnostic: '+diagnostic}).catch(()=>r.abort().catch(()=>{}))}else await r.abort().catch(()=>{})}
    });
    await c.routeWebSocket('**/*',ws=>ws.close());
    s.context=c;s.page=await c.newPage();s.tabs.push(s.page);c.on('page',p=>{if(!s.creating&&!s.tabs.includes(p))void p.close().catch(()=>{})});return await navigate(s,u.href);
