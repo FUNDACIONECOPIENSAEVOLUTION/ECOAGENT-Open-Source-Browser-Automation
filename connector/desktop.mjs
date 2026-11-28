@@ -12,12 +12,12 @@ import {createLivePool} from './live-pool.mjs';
 import {createSubmissionLedger} from './submission-ledger.mjs';
 import {operationDiagnostic} from './operation-diagnostics.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.58.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.59.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.58.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.59.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -189,6 +189,7 @@ const manual={
    if(action==='take'){const state=control.status();if(!state.requested||!state.session)throw Error('No pending takeover');await live.humanTake(state.session);return control.take()}
    if(action==='release'){const id=control.assertHuman();const state=await live.humanRelease(id);if(state.manualRequired||state.blocked)return {blocked:true,reason:state.reason,...control.status()};return {...control.release(),resumed:true,session:id,snapshot:state.snapshot}}
    const id=control.assertHuman();
+   if(action==='auth-next')return live.humanTake(id,true);
    if(action==='inspect'||action==='preview')return {blocked:true,reason:'Use the visible browser during manual control'};
    if(action==='reload')return live.reload(id,false);
    if(action==='back'||action==='forward')return live.history(id,action,false);

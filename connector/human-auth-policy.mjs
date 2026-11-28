@@ -7,3 +7,6 @@ export function safeAuthRedirect(location,source,status){
  if(![302,303].includes(status)||!location)return null;
  try{const a=readURL(source),b=readURL(new URL(location,a).href);return a.origin===b.origin?b.href:null}catch{return null}
 }
+
+// Only an explicit local human action may request a new one-shot permit.
+export function canRenewAuthPermit(previous,now=Date.now()){return !previous||previous.expires<=now||previous.permit.used()===true;}
