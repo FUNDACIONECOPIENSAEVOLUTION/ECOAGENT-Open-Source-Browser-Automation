@@ -19,7 +19,7 @@ const sampleHash=createHash('sha256').update(sampleDocument).digest('hex');
 const html='<html><head><title>ECOAGENT local form fixture</title></head><body><h1>Draft only</h1><form method="post" enctype="multipart/form-data" action="'+fixtureSubmit+'"><label>Project <input name="project" required></label><label>Summary <textarea name="summary"></textarea></label><label>Category <select name="category"><option>Research</option><option>Environment</option></select></label><label>Accept demo <input type="checkbox" name="demoConsent"></label><label>Sample document <input type="file" name="demoDocument" multiple></label><label>Password <input type="password" name="password"></label><button type="submit">Submit</button><a href="'+fixtureNext+'">Next page</a></form></body></html>';
 const dynamicHTML='<html><head><title>ECOAGENT dynamic fixture</title></head><body><form id="draft"><label>Project <input name="project" required></label><button type="button" id="expand">Add details</button><section id="details" hidden><label>Summary <textarea name="summary" required></textarea></label></section><button type="button" id="nextStage">Next stage</button><section id="budgetStage" hidden><label>Budget <input name="budget" type="number" min="1" required></label><button type="button" id="previousStage">Previous stage</button></section><button type="submit">Submit</button></form><script>document.getElementById("expand").addEventListener("click",()=>{document.getElementById("details").hidden=false});document.getElementById("nextStage").addEventListener("click",()=>{const f=document.getElementById("draft");const project=f.elements.project;const summary=f.elements.summary;if(!project.value.trim()||!summary.value.trim())return;document.getElementById("budgetStage").hidden=false;document.getElementById("details").hidden=true;project.closest("label").hidden=true;document.getElementById("expand").hidden=true;document.getElementById("nextStage").hidden=true});document.getElementById("previousStage").addEventListener("click",()=>{document.getElementById("budgetStage").hidden=true;document.getElementById("details").hidden=false;document.querySelector("[name=project]").closest("label").hidden=false;document.getElementById("expand").hidden=false;document.getElementById("nextStage").hidden=false});document.getElementById("draft").addEventListener("submit",e=>e.preventDefault());</script></body></html>';
 export const maxTabs=80;
-export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=createSubmissionLedger(),approvalDeadline=()=>0}={}){
+export function createLive(root,{ttl=600000,onClose=()=>{},visible=false,ledger=createSubmissionLedger(),approvalDeadline=()=>0}={}){
  let session=null;
  async function close(){const s=session;session=null;if(s){clearTimeout(s.timer);try{await s.browser.close().catch(()=>{})}finally{onClose(s.id)}}return {closed:!!s}}
  function arm(s){clearTimeout(s.timer);s.timer=setTimeout(()=>{if(session!==s)return;if(s.active||approvalDeadline(s.id)>Date.now())arm(s);else void close()},s.handoff?Math.max(ttl,900000):ttl);s.timer.unref()}
@@ -307,11 +307,11 @@ export function createLive(root,{ttl=300000,onClose=()=>{},visible=false,ledger=
   if(r.info.tag!=='input'||r.info.type!=='file'||!Array.isArray(documents)||documents.length<1||documents.length>4)throw new StaleReferenceError('Invalid attachment');
   const state=await r.handle.evaluate(e=>({valid:e.isConnected&&e.type==='file'&&!e.disabled,multiple:e.multiple,count:e.files.length}));
   if(!state.valid||(documents.length>1&&!state.multiple)||state.count)throw new StaleReferenceError('Input unavailable, single-file only or already populated');
-  await r.handle.setInputFiles(documents.map(d=>({name:d.name,mimeType:d.mimeType,buffer:d.buffer})),{timeout:10000});
-  const files=await r.handle.evaluate(async e=>Promise.all(Array.from(e.files,async f=>{
+  try{await r.handle.setInputFiles(documents.map(d=>({name:d.name,mimeType:d.mimeType,buffer:d.buffer})),{timeout:10000})}catch{throw Error('Attachment selection failed')}
+  let files;try{files=await r.handle.evaluate(async e=>Promise.all(Array.from(e.files,async f=>{
    const digest=await crypto.subtle.digest('SHA-256',await f.arrayBuffer());
    return {name:f.name,size:f.size,sha256:Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('')};
-  })));
+  })))}catch{throw Error('Attachment browser digest failed')}
   if(files.length!==documents.length||files.some((f,i)=>f.name!==documents[i].name||f.size!==documents[i].size||f.sha256!==documents[i].sha256))throw Error('Attachment verification failed');
   return {attached:true,files,submitted:false,externalUploadConfirmed:false};
  }),
