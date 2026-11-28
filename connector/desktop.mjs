@@ -11,12 +11,12 @@ import {createLive} from './desktop-live.mjs';
 import {createLivePool} from './live-pool.mjs';
 import {createSubmissionLedger} from './submission-ledger.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const server=new McpServer({name:'ecoagent-local',version:'0.47.0'});
+const server=new McpServer({name:'ecoagent-local',version:'0.48.0'});
 const result=x=>({content:[{type:'text',text:JSON.stringify(x)}]});
 let busy=false;
 const {createControl}=await import('./manual-control.mjs');
 const control=createControl();
-server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.47.0',publicReadOrigins:origins}));
+server.tool('ecoagent_local_health','Check the local ECOAGENT connector. No network or browser action.',{},{readOnlyHint:true},async()=>result({ok:true,mode:'local-stdio',version:'0.48.0',publicReadOrigins:origins}));
 async function readPage(url){
  const u=readURL(url);
  const output=await new Promise((resolve,reject)=>{
@@ -87,7 +87,7 @@ const {createFileTransfer}=await import('./file-transfer.mjs');
 const transfer=createFileTransfer(vault);
 server.tool('ecoagent_file_transfer','Receive exact bytes of a file already created by ChatGPT, in bounded base64 chunks; no local paths, URLs, generation, or external upload. Begin with name, size and SHA256; append sequential chunks; finish to obtain a vault document ID.',{action:z.enum(['begin','append','finish','cancel']),transfer:z.string().uuid().optional(),name:z.string().max(180).optional(),size:z.number().int().positive().max(25*1024*1024).optional(),sha256:z.string().regex(/^[a-f0-9]{64}$/).optional(),offset:z.number().int().nonnegative().optional(),data:z.string().max(87384).optional()},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async(args)=>exclusive(async()=>transfer.execute(args)));
 let approvalUI;
-async function ensureLocalUI(){if(process.env.ECOAGENT_ENABLE_APPROVAL_UI!=='1')throw Error('Local UI disabled');if(!approvalUI){const {startApprovalUI}=await import('./approval-ui.mjs');approvalUI=await startApprovalUI(approvals,{vault,manual});console.error('ECOAGENT local UI: '+approvalUI.url)}return approvalUI}
+async function ensureLocalUI(){if(process.env.ECOAGENT_ENABLE_APPROVAL_UI!=='1')throw Error('Local UI disabled');if(!approvalUI){const {startApprovalUI}=await import('./approval-ui.mjs');approvalUI=await startApprovalUI(approvals,{vault,manual});console.error('ECOAGENT local UI started (loopback only)')}return approvalUI}
 server.tool('ecoagent_request_demo_approval','Request local human approval for a synthetic document action. Does not authorize or execute the action.',{session:sessionId,action:z.enum(['demo-attach','demo-download'])},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async({session,action})=>exclusive(async()=>{
  if(process.env.ECOAGENT_ENABLE_APPROVAL_UI!=='1')throw Error('Local approval UI disabled');
  const s=await live.inspect(session);if(!s.demo)throw Error('Demo session required');
@@ -99,6 +99,7 @@ server.tool('ecoagent_approved_demo_action','Execute a single locally approved s
  approvals.consume(approval,{session,action,digest:actionDigest(session,action)});
  return action==='demo-attach'?live.attachDemo(session):live.downloadDemo(session);
 }));
+server.tool('ecoagent_open_approval_panel','Open the local approval panel in a dedicated visible browser. No approval, file selection or submission is performed.',{},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async()=>exclusive(async()=>{const ui=await ensureLocalUI();const {openLocalPanel}=await import('./local-panel.mjs');return openLocalPanel(ui.url)}));
 server.tool('ecoagent_prepare_documents','Start opt-in local document selection interface. Only the human selects files; no remote path or file contents accepted.',{},{readOnlyHint:false,destructiveHint:false,openWorldHint:false},async()=>exclusive(async()=>{await ensureLocalUI();return {ready:true,instruction:'Open local UI URL printed in runtime diagnostics. Select files locally; no external upload.'}}));
 server.tool('ecoagent_document_inventory','List metadata for files selected locally or received through verified file transfer. Does not return contents or local paths.',{},{readOnlyHint:true,openWorldHint:false},async()=>exclusive(async()=>({documents:vault.list()})));
 const {createHash}=await import('node:crypto');
