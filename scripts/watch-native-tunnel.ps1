@@ -59,7 +59,7 @@ try{
  if(!$env:CONTROL_PLANE_API_KEY){Record 'credential_empty';return}
  if($EnableApprovalUI){$env:ECOAGENT_ENABLE_APPROVAL_UI='1'}
  if($EnableVisibleBrowser){$env:ECOAGENT_VISIBLE_BROWSER='1'}
- $null= & $tunnel runtimes connect --alias ecoagent --tunnel-id $id --profile ecoagent --profile-dir $profile --runtime-api-key 'env:CONTROL_PLANE_API_KEY' --mcp-command 'D:/ECOAGENT/tools/node-v22.23.5-win-x64/node.exe D:/ECOAGENT/connector/desktop.mjs' 2>&1
+ $null= & $tunnel runtimes connect --alias ecoagent --tunnel-id $id --profile ecoagent --profile-dir $profile --runtime-api-key 'env:CONTROL_PLANE_API_KEY' --mcp-command 'D:/ECOAGENT/tools/node-v22.23.5-win-x64/node.exe --use-system-ca D:/ECOAGENT/connector/desktop.mjs' 2>&1
  if($LASTEXITCODE -ne 0){Record 'connect_failed';return}
  for($i=0;$i -lt 15;$i++){
   $s=(& $tunnel runtimes status ecoagent 2>&1|Out-String)

@@ -34,7 +34,7 @@ function Ready {
  return ($LASTEXITCODE -eq 0 -and $s -match '\bready\b' -and $s -notmatch '(?i)\bnot\s+ready\b')
 }
 function Start-Ecoagent {
- & $tunnel runtimes connect --alias ecoagent --tunnel-id $tunnelId --profile ecoagent --profile-dir $profileDir --runtime-api-key 'env:CONTROL_PLANE_API_KEY' --mcp-command 'D:/ECOAGENT/tools/node-v22.23.5-win-x64/node.exe D:/ECOAGENT/connector/desktop.mjs'
+ & $tunnel runtimes connect --alias ecoagent --tunnel-id $tunnelId --profile ecoagent --profile-dir $profileDir --runtime-api-key 'env:CONTROL_PLANE_API_KEY' --mcp-command 'D:/ECOAGENT/tools/node-v22.23.5-win-x64/node.exe --use-system-ca D:/ECOAGENT/connector/desktop.mjs'
  if($LASTEXITCODE -ne 0){throw 'Tunnel connect failed'}
  for($i=0;$i -lt 15;$i++){if(Ready){return};Start-Sleep -Seconds 2}
  throw 'Tunnel not ready'
@@ -72,6 +72,11 @@ try{
  & $tunnel runtimes stop ecoagent
  if($LASTEXITCODE -ne 0){throw 'Could not stop managed runtime'}
  $stopped=$true
+ for($attempt=0;$attempt -lt 15;$attempt++){
+ $running=Get-CimInstance Win32_Process -Filter "Name = 'node.exe'"|Where-Object {$_.CommandLine -match '(?i)ECOAGENT[\\/]connector[\\/]desktop\.mjs'}
+  if(!$running){break}
+  Start-Sleep -Seconds 2
+ }
  $running=Get-CimInstance Win32_Process -Filter "Name = 'node.exe'"|Where-Object {$_.CommandLine -match '(?i)ECOAGENT[\\/]connector[\\/]desktop\.mjs'}
  if($running){throw 'Another ECOAGENT MCP process is active; close it manually'}
  foreach($r in $roots){
